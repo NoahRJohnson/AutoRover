@@ -7,13 +7,13 @@
 #define enc1BPin 4
 #define enc2APin 3 // Hardware interrupt pin
 #define enc2BPin 7
-#define turnPin 5
-#define throttlePin 6
+#define throttlePin 5
+#define turnPin 6
 #define sonicServoPin 9
 #define ultrasonicPin 11
 
 
-Servo turn, throttle; // Sabertooth R/C control. 0 deg full forward, 90 stopped, 180 deg full reverse
+Servo throttle, turn; // Sabertooth R/C control. 0 deg full forward, 90 stopped, 180 deg full reverse
 Servo sonicServo; // standard Parallax servo attached to ultrasonic sensor
 
 int servoPos = 90;
@@ -23,14 +23,14 @@ void setup()
   Serial.begin(115200);
 
   // Sabertooth accepts servo pulses from 1000 us to 2000 us.
-  turn.attach(turnPin, 1000, 2000);
   throttle.attach(throttlePin, 1000, 2000);
+  turn.attach(turnPin, 1000, 2000);
   
   sonicServo.attach(sonicServoPin);
   
   // Tell motors not to move.
-  turn.write(90);
-  throttle.write(90);
+  hrottle.write(130);
+  //turn.write(90);
 
   sonicServo.write(servoPos); // Set servo to center
   
@@ -71,7 +71,8 @@ void serialEvent() { // Called when data is sent by laptop over serial port
 
 void loop()
 {
-  while (servoPos < 180) {
+  
+  /*while (servoPos < 180) {
     // PUT PING))) CODE HERE
     sonicServo.write(servoPos);
     delay(15); // wait 15 ms for servo to reach pos 
@@ -83,6 +84,6 @@ void loop()
     sonicServo.write(servoPos);
     delay(15); // wait 15 ms for servo to reach pos
     servoPos--;
-  }
+  }*/
 
 }
