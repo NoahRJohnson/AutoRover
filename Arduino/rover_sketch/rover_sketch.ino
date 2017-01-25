@@ -12,6 +12,8 @@
 #define sonicServoPin 9
 #define ultrasonicPin 11
 
+const char startOfNumberDelimiter = '<';
+const char endOfNumberDelimiter   = '>';
 
 Servo throttle, turn; // Sabertooth R/C control. 0 deg full forward, 90 stopped, 180 deg full reverse
 Servo sonicServo; // standard Parallax servo attached to ultrasonic sensor
@@ -29,7 +31,7 @@ void setup()
   sonicServo.attach(sonicServoPin);
   
   // Tell motors not to move.
-  hrottle.write(130);
+  throttle.write(130);
   //turn.write(90);
 
   sonicServo.write(servoPos); // Set servo to center
@@ -45,6 +47,10 @@ void serialEvent() { // Called when data is sent by laptop over serial port
   while (Serial.available()) {
     
     c = (char) Serial.read();
+
+    switch(c) {
+      case 
+    }
 
     if (c == 'P') { // Power
       d1 = Serial.read();

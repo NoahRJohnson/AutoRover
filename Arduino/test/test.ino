@@ -23,22 +23,28 @@ void setup()
   Serial.begin(115200);
 
   // Sabertooth accepts servo pulses from 1000 us to 2000 us.
-  throttle.attach(throttlePin); //, 1000, 2000
-  turn.attach(turnPin); //, 1000, 2000
+  //throttle.attach(throttlePin); //, 1000, 2000
+  //turn.attach(turnPin); //, 1000, 2000
   
   sonicServo.attach(sonicServoPin);
   
   // Tell motors not to move.
-  throttle.write(92);
-  turn.write(92);
+  //throttle.write(92);
+  //turn.write(92);
 
-  sonicServo.write(144); // Set servo to center
+  //sonicServo.write(144); // Set servo to center
   
   //delay(5000);
 }
 
 void loop()
 {
+  sonicServo.write(180);   // Rotate servo counter clockwise
+  delay(2000);          // Wait 2 seconds
+  sonicServo.write(0);     // Rotate servo clockwise
+  delay(2000);
+  sonicServo.write(90);    // Rotate servo to center
+  delay(2000); 
   
   /*while (servoPos < 180) {
     // PUT PING))) CODE HERE
