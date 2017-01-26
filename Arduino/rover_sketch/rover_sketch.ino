@@ -1,12 +1,13 @@
 #include <Servo.h>
+#include <NewPing.h>
 
 // Make sure that Arduino GND is connected to motor driver's GND
 
 // Define Arduino digital pin connections 
-#define enc1APin 2 // Hardware interrupt pin
-#define enc1BPin 4
-#define enc2APin 3 // Hardware interrupt pin
-#define enc2BPin 7
+#define enc1APin 2 // Hardware interrupt pin, channel A output
+#define enc1BPin 4 // Channel B output
+#define enc2APin 3 // Hardware interrupt pin, channel A output
+#define enc2BPin 7 // Channel B output
 #define throttlePin 5 // S1 on Sabertooth
 #define turnPin 6 // S2 on Sabertooth
 #define sonicServoPin 9 // standard Parallax servo attached to ultrasonic sensor
@@ -25,7 +26,11 @@ Servo sonicServo; // standard Parallax servo attached to ultrasonic sensor. xx l
 #define SERVO_STEP_SZ 5
 int servoPos;
 
-char storedCommand = 0; // Global variable to indicate whether a command has been read (non-zero), and store what that command was
+/*
+ * Signed longs are 4 bytes long (about -2 billion to 2 billion).
+ */
+volatile long enc1_count = 0L;
+volatile long enc2_count = 0L;
 
 void setup()
 {
@@ -44,8 +49,74 @@ void setup()
   // Set servo to starting position
   servoPos = SERVO_RIGHT;
   sonicServo.write(servoPos);
+
+  // Set up hardware interrupts on pins 
+  attachInterrupt(digitalPinToInterrupt(enc1APin), encoder1_isr, CHANGE);
+  attachInterrupt(digitalPinToInterrupt(enc2APin), encoder2_isr, CHANGE);
   
   //delay(5000);
+}
+
+/*
+ * Interrupt Service Routine
+ * http://makeatronics.blogspot.com/2013/02/efficiently-reading-quadrature-with.html
+ * 
+ * ISRs must be as fast as possible, so rather than clear coding practice (like using
+ * (1 << enc1APin), I will conserve operations by using constants where I can (0b100).
+ */
+void encoder1_isr() {
+  static int8_t lookup_table[] = {0,0,0,-1,0,0,1,0,0,1,0,0,-1,0,0,0};
+  static uint8_t enc_val = 0;
+
+  enc_val = enc_val << 2; // Store the previous 2-bit code
+
+  /* 
+   *  PIND returns input readings from pins 0-7 as a byte.
+   *  https://www.arduino.cc/en/Reference/PortManipulation
+   *  The below code uses bit shifting and masking to put
+   *  the values of digital input pins 4 (output B) and 
+   *  2 (output A) into the least significant bit and 
+   *  second-least significant bit of the enc_val 
+   *  variable, respectively.
+   */
+  enc_val = enc_val | ( ((PIND & 0b100) >> 1) | ((PIND & 0b10000) >> 4) );
+
+  /* The previous 2-bit code and the current 2-bit code together create
+   * a unique ID able to identify which direction (CW or CCW) the motor
+   * attached to the encoder has moved.
+   */ 
+  enc1_count = enc1_count + lookup_table[enc_val & 0b1111];
+}
+
+/*
+ * Interrupt Service Routine
+ * http://makeatronics.blogspot.com/2013/02/efficiently-reading-quadrature-with.html
+ * 
+ *  ISRs must be as fast as possible, so rather than clear coding practice (like using
+ * (1 << enc2APin), I will minimize operations by using constants where I can (0b1000).
+ */
+void encoder2_isr() {
+  static int8_t lookup_table[] = {0,0,0,-1,0,0,1,0,0,1,0,0,-1,0,0,0};
+  static uint8_t enc_val = 0;
+
+  enc_val = enc_val << 2; // Store the previous 2-bit code
+
+  /* 
+   *  PIND returns input readings from pins 0-7 as a byte.
+   *  https://www.arduino.cc/en/Reference/PortManipulation
+   *  The below code uses bit shifting and masking to put
+   *  the values of digital input pins 7 (output B) and 
+   *  3 (output A) into the least significant bit and 
+   *  second-least significant bit of the enc_val 
+   *  variable, respectively.
+   */
+  enc_val = enc_val | ( ((PIND & 0b1000) >> 2) | ((PIND & 0b10000000) >> 7) );
+
+  /* The previous 2-bit code and the current 2-bit code together create
+   * a unique ID able to identify which direction (CW or CCW) the motor
+   * attached to the encoder has moved.
+   */ 
+  enc2_count = enc2_count + lookup_table[enc_val & 0b1111];
 }
 
 /*
@@ -70,7 +141,7 @@ void processSerialInput() {
     } else if (command == 'T') { // Turn
       turn.write(b);
     } else { // unrecognized command
-      Serial.print("ERROR: Unrecognized command symbol: "); Serial.println(storedCommand);
+      Serial.print("ERROR: Unrecognized command symbol: "); Serial.println(command);
     }
   }
 }
