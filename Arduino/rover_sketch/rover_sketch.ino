@@ -39,7 +39,8 @@ void setup()
   // Control rover through sabertooth r/c mode turn and throttle sticks
   throttle.attach(throttlePin);
   turn.attach(turnPin);
-  
+
+  // Control standard servo
   sonicServo.attach(sonicServoPin);
   
   // Tell motors not to move.
@@ -50,7 +51,10 @@ void setup()
   servoPos = SERVO_RIGHT;
   sonicServo.write(servoPos);
 
-  // Set up hardware interrupts on pins 
+  // Set up hardware interrupts on the Output A pins for both
+  // the encoders. The Uno only has 2 hardware interrupt pins.
+  // Digital pins default to INPUT mode, so we don't have to set
+  // that here.
   attachInterrupt(digitalPinToInterrupt(enc1APin), encoder1_isr, CHANGE);
   attachInterrupt(digitalPinToInterrupt(enc2APin), encoder2_isr, CHANGE);
   
