@@ -23,7 +23,7 @@ Servo sonicServo; // standard Parallax servo attached to ultrasonic sensor. xx l
 #define SERVO_LEFT 130
 #define SERVO_CENTER 66
 #define SERVO_RIGHT 0
-#define SERVO_STEP_SZ 5
+#define SERVO_STEP_SZ 1
 int servoPos;
 
 /*
@@ -34,13 +34,13 @@ volatile long enc2_count = 0L;
 
 void setup()
 {
-  Serial.begin(115200);
+  Serial.begin(9600);
 
   // Control rover through sabertooth r/c mode turn and throttle sticks
   //throttle.attach(throttlePin);
   //turn.attach(turnPin);
   
-  //sonicServo.attach(sonicServoPin);
+  sonicServo.attach(sonicServoPin);
   
   // Tell motors not to move.
   //throttle.write(130);
@@ -48,11 +48,11 @@ void setup()
 
   // Set servo to starting position
   servoPos = SERVO_RIGHT;
-  //sonicServo.write(servoPos);
+  sonicServo.write(servoPos);
 
   
-  attachInterrupt(digitalPinToInterrupt(enc1APin), encoder1_isr, CHANGE);
-  attachInterrupt(digitalPinToInterrupt(enc2APin), encoder2_isr, CHANGE);
+  //attachInterrupt(digitalPinToInterrupt(enc1APin), encoder1_isr, CHANGE);
+  //attachInterrupt(digitalPinToInterrupt(enc2APin), encoder2_isr, CHANGE);
   
   //delay(5000);
 }
@@ -149,9 +149,36 @@ void processSerialInput() {
 
 void loop()
 {
+  /*
+  Serial.print("Ping: ");
+  Serial.print(sonar.ping_cm()); // Send ping, get distance in cm and print result (0 = outside set distance range)
+  Serial.println("cm");
+  delay(50);*/
   
-  Serial.print("Enc1: "); Serial.println(enc1_count);
-  Serial.print("Enc2: "); Serial.println(enc2_count);
-  delay(50);
+  while (servoPos < SERVO_LEFT) {
+    sonicServo.write(servoPos);
+    if (Serial.available() > 1) {
+      processSerialInput();
+    } else {
+      delay(50); // wait 15 ms for servo to reach pos 
+    }
+    Serial.print("Ping: ");
+    Serial.print(sonar.ping_cm()); // Send ping, get distance in cm and print result (0 = outside set distance range)
+    Serial.println("cm");
+    servoPos = servoPos + SERVO_STEP_SZ;
+  }
+
+  while (servoPos > SERVO_RIGHT) {
+    sonicServo.write(servoPos);
+    if (Serial.available() > 1) {
+      processSerialInput();
+    } else {
+      delay(50); // wait 15 ms for servo to reach pos 
+    }
+    Serial.print("Ping: ");
+    Serial.print(sonar.ping_cm()); // Send ping, get distance in cm and print result (0 = outside set distance range)
+    Serial.println("cm");
+    servoPos = servoPos - SERVO_STEP_SZ;
+  } 
 
 }

@@ -17,7 +17,7 @@
 #define MAX_DISTANCE 300 // Maximum distance we want to ping for (in centimeters). Maximum sensor distance is rated at 400-500cm.
 NewPing sonar(TRIGGER_PIN, ECHO_PIN, MAX_DISTANCE); // Setup NewPing to use the appropriate pins and settings
 
-Servo throttle, turn; // Sabertooth R/C control. 0 deg full forward, 90 stopped, 180 deg full reverse
+Servo throttle, turn; // Sabertooth R/C control. 44 deg full forward, 94 stopped, 144 deg full reverse
 Servo sonicServo; // standard Parallax servo attached to ultrasonic sensor. xx left, 66 center, xx 
 
 #define SERVO_LEFT 130
@@ -32,9 +32,10 @@ int servoPos;
 volatile long enc1_count = 0L;
 volatile long enc2_count = 0L;
 
-void setup()
-{
-  Serial.begin(115200);
+static int8_t encoder_lookup_table[] = {0,0,0,-1,0,0,1,0,0,1,0,0,-1,0,0,0};
+
+void setup() {
+  Serial.begin(9600);
 
   // Control rover through sabertooth r/c mode turn and throttle sticks
   throttle.attach(throttlePin);
@@ -42,10 +43,6 @@ void setup()
 
   // Control standard servo
   sonicServo.attach(sonicServoPin);
-  
-  // Tell motors not to move.
-  //throttle.write(130);
-  //turn.write(90);
 
   // Set servo to starting position
   servoPos = SERVO_RIGHT;
@@ -69,7 +66,6 @@ void setup()
  * (1 << enc1APin), I will conserve operations by using constants where I can (0b100).
  */
 void encoder1_isr() {
-  static int8_t lookup_table[] = {0,0,0,-1,0,0,1,0,0,1,0,0,-1,0,0,0};
   static uint8_t enc_val = 0;
 
   enc_val = enc_val << 2; // Store the previous 2-bit code
@@ -89,7 +85,7 @@ void encoder1_isr() {
    * a unique ID able to identify which direction (CW or CCW) the motor
    * attached to the encoder has moved.
    */ 
-  enc1_count = enc1_count + lookup_table[enc_val & 0b1111];
+  enc1_count = enc1_count + encoder_lookup_table[enc_val & 0b1111];
 }
 
 /*
@@ -100,7 +96,6 @@ void encoder1_isr() {
  * (1 << enc2APin), I will minimize operations by using constants where I can (0b1000).
  */
 void encoder2_isr() {
-  static int8_t lookup_table[] = {0,0,0,-1,0,0,1,0,0,1,0,0,-1,0,0,0};
   static uint8_t enc_val = 0;
 
   enc_val = enc_val << 2; // Store the previous 2-bit code
@@ -120,7 +115,7 @@ void encoder2_isr() {
    * a unique ID able to identify which direction (CW or CCW) the motor
    * attached to the encoder has moved.
    */ 
-  enc2_count = enc2_count + lookup_table[enc_val & 0b1111];
+  enc2_count = enc2_count + encoder_lookup_table[enc_val & 0b1111];
 }
 
 /*
@@ -150,19 +145,30 @@ void processSerialInput() {
   }
 }
 
-void loop()
-{
+void loop() {
   
   while (servoPos < SERVO_LEFT) {
     sonicServo.write(servoPos);
     if (Serial.available() > 1) {
       processSerialInput();
     } else {
-      delay(15); // wait 15 ms for servo to reach pos 
+      delay(35); // wait 35 ms for servo to reach pos, and to not take too many pings per second
     }
     Serial.print("Ping: ");
     Serial.print(sonar.ping_cm()); // Send ping, get distance in cm and print result (0 = outside set distance range)
     Serial.println("cm");
+
+    /*
+     * Reading from multi-byte variables which are accessed within
+     * and without an ISR risks data corruption, so interrupt guards
+     * must be used around a read to make it atomic.
+     */
+    noInterrupts(); // turn off all interrupts
+    // worst case scenario, two encoder interrupt flags and serial RX flag are set right after noInterrupts();
+    enc1_cnt_temp = enc1_count; // long is 4 bytes, so translates to 4 machine instructions.
+    enc2_cnt_temp = enc2_count; // also 4 machine instructions
+    interrupts(); // turn all interrupts back on, handle any that were flagged in-between guards
+    
     servoPos = servoPos + SERVO_STEP_SZ;
   }
 
@@ -171,12 +177,50 @@ void loop()
     if (Serial.available() > 1) {
       processSerialInput();
     } else {
-      delay(15); // wait 15 ms for servo to reach pos 
+      delay(35); // wait 35 ms for servo to reach pos, and to not take too many pings per second
     }
-    Serial.print("Ping: ");
-    Serial.print(sonar.ping_cm()); // Send ping, get distance in cm and print result (0 = outside set distance range)
-    Serial.println("cm");
+    pushSensorUpdate(servoPos);
+    
     servoPos = servoPos - SERVO_STEP_SZ;
   }
 
 }
+
+void pushSensorUpdate(int8_t servoPos) {
+
+  long enc1_cnt_temp, enc2_cnt_temp;
+
+  /*
+   * Reading from multi-byte variables which are accessed within
+   * and without an ISR risks data corruption, so interrupt guards
+   * must be used around a read to make it atomic.
+   */
+  noInterrupts(); // turn off all interrupts
+  // worst case scenario, two encoder interrupt flags and serial RX flag are set right after noInterrupts();
+  enc1_cnt_temp = enc1_count; // long is 4 bytes, so assignment translates to 4 machine instructions.
+  enc2_cnt_temp = enc2_count; // also 4 machine instructions
+  interrupts(); // turn all interrupts back on, run next statement, then handle any that were flagged in-between guards
+  // The next statement is guaranteed to run before flagged interrupts are handled (I actually don't want this feature, but wtv)
+
+  /* 
+   *  Send sensor data to processing unit over serial port, with descriptive start bytes.
+   *  L == Left motor's quadrature encoder's position value
+   *  R == Right motor's quadrature encoder's position value
+   *  S == Angular degree of servo
+   *  P == Ultrasonic ping distance measured at the given servo angle
+   */
+  Serial.print("L"); 
+  Serial.print(enc1_cnt_temp);
+  Serial.print("R");
+  Serial.print(enc2_cnt_temp);
+   
+  Serial.print("S");
+  Serial.print(servoPos);
+  Serial.print("P");
+  Serial.print(sonar.ping_cm()); // Send ping, get distance in cm and print result (0 = outside set distance range)
+
+  
+
+  
+}
+
