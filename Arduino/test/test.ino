@@ -20,11 +20,18 @@ NewPing sonar(TRIGGER_PIN, ECHO_PIN, MAX_DISTANCE); // Setup NewPing to use the 
 Servo throttle, turn; // Sabertooth R/C control. 0 deg full forward, 90 stopped, 180 deg full reverse
 Servo sonicServo; // standard Parallax servo attached to ultrasonic sensor. xx left, 66 center, xx 
 
-#define SERVO_LEFT 130
-#define SERVO_CENTER 66
-#define SERVO_RIGHT 0
-#define SERVO_STEP_SZ 1
-int servoPos;
+/*
+ * We use the Arduino Servo library to write pulses out to the servo telling it where to position itself.
+ * We will sweep the servo back and forth to detect obstacles ahead and to the sides of the rover.
+ * The servo takes degrees from 0 to 180. However, the ping sensor is not mounted exactly at the servo's 
+ * center point. Thus, we will define the range that we wish the servo to sweep between.
+ */
+#define SERVO_LEFT 150 // Degree corresponding to ping sensor pointing left
+#define SERVO_CENTER 66 // Degree corresponding to ping sensor pointing straight
+#define SERVO_RIGHT 0 // Degree corresponding to ping sensor pointing right
+#define SERVO_STEP_SZ 1 // How many degrees to increment or decrement servo sweep by at each step (should be a divisor of 5)
+#define SERVO_STEP_DELAY 50 // How many ms to wait in-between servo steps, and thus between pings
+#define SERVO_DEFAULT_DEG 93 // Which angular position the servo defaults to when attached but given no directions.
 
 /*
  * Signed longs are 4 bytes long (about -2 billion to 2 billion).
@@ -41,14 +48,14 @@ void setup()
   //turn.attach(turnPin);
   
   sonicServo.attach(sonicServoPin);
+  sonicServo.write(SERVO_RIGHT);
   
   // Tell motors not to move.
   //throttle.write(130);
   //turn.write(90);
 
   // Set servo to starting position
-  servoPos = SERVO_RIGHT;
-  sonicServo.write(servoPos);
+  //sonicServo.write(servoPos);
 
   
   //attachInterrupt(digitalPinToInterrupt(enc1APin), encoder1_isr, CHANGE);
@@ -147,38 +154,90 @@ void processSerialInput() {
   }
 }
 
-void loop()
-{
-  /*
-  Serial.print("Ping: ");
-  Serial.print(sonar.ping_cm()); // Send ping, get distance in cm and print result (0 = outside set distance range)
-  Serial.println("cm");
-  delay(50);*/
+void loop() {
+  uint8_t servoPos, ping_time_uS;
+
+  servoPos = SERVO_RIGHT; // initial servo position
   
   while (servoPos < SERVO_LEFT) {
     sonicServo.write(servoPos);
+
     if (Serial.available() > 1) {
       processSerialInput();
     } else {
-      delay(50); // wait 15 ms for servo to reach pos 
+      delay(SERVO_STEP_DELAY); // wait for servo to reach pos, and make sure we don't take too many pings per second
     }
-    Serial.print("Ping: ");
-    Serial.print(sonar.ping_cm()); // Send ping, get distance in cm and print result (0 = outside set distance range)
-    Serial.println("cm");
-    servoPos = servoPos + SERVO_STEP_SZ;
+    
+    //ping_time_uS = sonar.ping(); // Send ping, get distance in uS (0 == NO_ECHO => outside set distance range)
+
+    //pushSensorUpdate(servoPos, ping_time_uS);
+    Serial.println(servoPos);
+
+    // increment by step size, but don't overshoot
+    servoPos += (servoPos + SERVO_STEP_SZ <= SERVO_LEFT) ? SERVO_STEP_SZ : (SERVO_LEFT - servoPos); 
   }
 
   while (servoPos > SERVO_RIGHT) {
     sonicServo.write(servoPos);
+    
     if (Serial.available() > 1) {
       processSerialInput();
     } else {
-      delay(50); // wait 15 ms for servo to reach pos 
+      delay(SERVO_STEP_DELAY); // wait for servo to reach pos, and make sure we don't take too many pings per second
     }
-    Serial.print("Ping: ");
-    Serial.print(sonar.ping_cm()); // Send ping, get distance in cm and print result (0 = outside set distance range)
-    Serial.println("cm");
-    servoPos = servoPos - SERVO_STEP_SZ;
-  } 
+    
+    //ping_time_uS = sonar.ping(); // Send ping, get distance in uS (0 == NO_ECHO => outside set distance range)
 
+    //pushSensorUpdate(servoPos, ping_time_uS);
+
+    Serial.println(servoPos);
+    
+    // decrement by step size, but don't undershoot
+    servoPos -= (servoPos - SERVO_STEP_SZ >= SERVO_RIGHT) ? SERVO_STEP_SZ : (servoPos - SERVO_RIGHT);
+  }
+
+  
+
+}
+
+/**
+ * Push sensor data over serial TX.
+ * This routine currently pushes 14 bytes per execution.
+ * This routine should not be called more often than
+ * (baud rate / 14) times per second.
+ * The baud rate is currently 9600, so this routine should 
+ * be called less than 680 times per second.
+ */
+void pushSensorUpdate(int8_t servoPos, uint8_t ping_uS) {
+
+  long enc1_cnt_temp, enc2_cnt_temp;
+
+  /*
+   * Reading from multi-byte variables which are accessed within
+   * and without an ISR risks data corruption, so interrupt guards
+   * must be used around a read to make it atomic.
+   */
+  noInterrupts(); // turn off all interrupts
+  // worst case scenario, two encoder interrupt flags and serial RX flag are set right after noInterrupts();
+  enc1_cnt_temp = enc1_count; // long is 4 bytes, so assignment translates to 4 machine instructions.
+  enc2_cnt_temp = enc2_count; // also 4 machine instructions
+  interrupts(); // turn all interrupts back on, run next statement, then handle any that were flagged in-between guards
+  // The next statement is guaranteed to run before flagged interrupts are handled (I actually don't want this feature, but wtv, we should have time to do it)
+
+  /* 
+   *  Send sensor data to processing unit over serial port, with descriptive start bytes.
+   *  L == Left motor's quadrature encoder's position value
+   *  R == Right motor's quadrature encoder's position value
+   *  S == Angular degree of servo
+   *  P == Ultrasonic ping distance measured at the given servo angle
+   */
+  Serial.print("L"); 
+  Serial.write(enc1_cnt_temp);
+  Serial.print("R");
+  Serial.write(enc2_cnt_temp);
+   
+  Serial.print("S");
+  Serial.write(servoPos);
+  Serial.print("P");
+  Serial.write(ping_uS);
 }
