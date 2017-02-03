@@ -43,6 +43,13 @@ Servo sonicServo; // standard Parallax servo attached to ultrasonic sensor. xx l
 
 /*
  * Signed longs are 4 bytes long (about -2 billion to 2 billion).
+ * There are about 680 counts per second of the rotary encoders, so
+ * in theory the earliest that these longs can under- or over-flow 
+ * is in (2,000,000,000 / 680) / 3600 =~ 816 hours, or 34 days of
+ * constantly running the Arduino. For the purposes of this project we can
+ * get away with not guarding for this error. But in a commercial project which 
+ * might have month-long continuous runtimes, this error should be handled in the
+ * loop() routine, using interrupt guards to check the encoder values.
  */
 volatile long enc1_count = 0L;
 volatile long enc2_count = 0L;
@@ -131,29 +138,59 @@ void encoder2_isr() {
 }
 
 /*
-  This routine is run between each movement of the ultrasonic
-  servo. Commands from the processing unit are expected to be
-  two bytes, with the first byte indicating whether the throttle
-  or turn sticks are to be modified, and the second byte indicating
-  the value to change to. Multiple commands may be available from
-  the Arduino's receiving buffer, which stores up to 64 bytes (or
-  32 commands).
+ * This routine is run between each movement of the ultrasonic
+ * servo. Commands from the processing unit are expected to be
+ * three bytes long, with the first byte indicating whether the throttle
+ * or turn sticks are to be modified, and the next two bytes storing
+ * the hexadecimal ASCII encoding of the degree to be written.
+ * Multiple commands may be available from
+ * the Arduino's receiving buffer, which stores up to 64 bytes (or
+ * 21 commands).
  */
 void processSerialInput() { 
-  byte b;
-  char command;
+  byte val = 0;
+  char command, h1, h2;
+  Servo target;
 
-  while (Serial.available() > 1) {
+  while (Serial.available() > 3) {
     command = (char) Serial.read();
-    b = Serial.read();
-    
     if (command == 'P') { // Power (throttle)
-      throttle.write(b);
+      target = throttle;
     } else if (command == 'T') { // Turn
-      turn.write(b);
+      target = turn;
     } else { // unrecognized command
       Serial.print("E: cmd "); Serial.println(command);
+      break;
     }
+
+    h1 = Serial.read(); // hexadecimal ASCII byte 1, representing first nibble of val
+    h2 = Serial.read(); // hexadecimal ASCII byte 1, representing second nibble of val
+
+    // Double check that all bytes are hexadecimal ASCII encodings of digits
+    if(h1 >= '0' && h1 <= '9') {
+      val |= ((h1 - 48) << 4); // 48 == '0'
+    } else if (h1 >= 'a' && h1 <= 'f') {
+      val |= ((h1 - 87) << 4); // 97 == 'a', a in hex == 10
+    } else {
+      Serial.print("E: h1 "); Serial.println(h1);
+      break;
+    } 
+
+    if(h2 >= '0' && h2 <= '9') {
+      val |= (h2 - 48); // 48 == '0';
+    } else if (h2 >= 'a' && h2 <= 'f') {
+      val |= (h2 - 87); // 97 == 'a', a in hex == 10;
+    } else {
+      Serial.print("E: h2 "); Serial.println(h2);
+      break;
+    } 
+    
+    if (val >= 0 && val <= 180) {
+      target.write(val);
+    } else { // If value is outside the acceptable servo range, print an error message  
+      Serial.print("E: val "); Serial.println(val);
+    }
+    
   }
 }
 
@@ -161,14 +198,15 @@ void processSerialInput() {
  * This function loops continuously while the Arduino runs.
  */
 void loop() {
-  uint8_t servoPos, ping_time_uS;
+  uint8_t servoPos;
+  uint16_t ping_time_uS;
 
   servoPos = SERVO_RIGHT; // initial servo position
   
   while (servoPos < SERVO_LEFT) {
     sonicServo.write(servoPos);
 
-    if (Serial.available() > 1) {
+    if (Serial.available() > 3) {
       processSerialInput();
     } else {
       delay(SERVO_STEP_DELAY); // wait for servo to reach pos, and make sure we don't take too many pings per second
@@ -185,7 +223,7 @@ void loop() {
   while (servoPos > SERVO_RIGHT) {
     sonicServo.write(servoPos);
     
-    if (Serial.available() > 1) {
+    if (Serial.available() > 3) {
       processSerialInput();
     } else {
       delay(SERVO_STEP_DELAY); // wait for servo to reach pos, and make sure we don't take too many pings per second
@@ -198,19 +236,25 @@ void loop() {
     // decrement by step size, but don't undershoot
     servoPos -= (servoPos - SERVO_STEP_SZ >= SERVO_RIGHT) ? SERVO_STEP_SZ : (servoPos - SERVO_RIGHT);
   }
+  
 }
 
 /**
- * Push sensor data over serial TX.
- * This routine currently pushes 14 bytes per execution.
+ * Push sensor data over serial TX. The data is encoded
+ * in ASCII, so each sensor has its own unique start byte.
+ * This routine pushes 26 bytes over serial per execution.
  * This routine should not be called more often than
- * (baud rate / 14) times per second.
- * The baud rate is currently 9600, so this routine should 
- * be called less than 680 times per second.
+ * (bytes per second / bytes pushed per execution) times per second.
+ * The baud rate is 9600, so this routine should 
+ * be called less than (960 / 26) =~ 36 times per second.
+ * This routine is called roughly (1000 / 50) = 20
+ * times per second. Thus 20 * 26 = 520 bytes per second are 
+ * sent over TX.
  */
-void pushSensorUpdate(int8_t servoPos, uint8_t ping_uS) {
+void pushSensorUpdate(uint8_t servoPos, uint16_t ping_uS) {
 
   long enc1_cnt_temp, enc2_cnt_temp;
+  uint8_t bytes[4];
 
   /*
    * Reading from multi-byte variables which are accessed within
@@ -226,19 +270,70 @@ void pushSensorUpdate(int8_t servoPos, uint8_t ping_uS) {
 
   /* 
    *  Send sensor data to processing unit over serial port, with descriptive start bytes.
+   *  None of the start bytes should be in the range '0' - '9' or 'a' - 'f', since those 
+   *  chars are used by the hexadecimal ASCII encoding.
    *  L == Left motor's quadrature encoder's position value
    *  R == Right motor's quadrature encoder's position value
    *  S == Angular degree of servo
-   *  P == Ultrasonic ping distance measured at the given servo angle
+   *  P == Ultrasonic ping time (in micro seconds) measured at the given servo angle
    */
-  Serial.print("L"); 
-  Serial.write(enc1_cnt_temp);
-  Serial.print("R");
-  Serial.write(enc2_cnt_temp);
+  Serial.print('L'); // sends 1 byte over serial
+  // Break up the encoder 1 position long into 4 bytes, and send each byte as HEX ASCII
+  bytes[0] = (enc1_cnt_temp >> 24) & 0xFF;
+  bytes[1] = (enc1_cnt_temp >> 16) & 0xFF;
+  bytes[2] = (enc1_cnt_temp >> 8)  & 0xFF;
+  bytes[3] =  enc1_cnt_temp        & 0xFF;
+  printToHex(bytes, 4); // sends 8 bytes over serial
+  
+  Serial.print('R'); // sends 1 byte over serial
+  // Break up the encoder 2 position long into 4 bytes, and send each byte as HEX ASCII
+  bytes[0] = (enc2_cnt_temp >> 24) & 0xFF;
+  bytes[1] = (enc2_cnt_temp >> 16) & 0xFF;
+  bytes[2] = (enc2_cnt_temp >> 8)  & 0xFF;
+  bytes[3] =  enc2_cnt_temp        & 0xFF;
+  printToHex(bytes, 4); // sends 8 bytes over serial
    
-  Serial.print("S");
-  Serial.write(servoPos);
-  Serial.print("P");
-  Serial.write(ping_uS);
+  Serial.print('S'); // sends 1 byte over serial
+  // Send the servo position byte as HEX ASCII
+  printToHex(&servoPos, 1); // sends 2 bytes over serial
+  
+  Serial.print('P'); // sends 1 byte over serial
+  bytes[0] = (ping_uS >> 8) & 0xFF;
+  bytes[1] =  ping_uS       & 0xFF;
+  printToHex(bytes, 2); // sends 4 bytes over serial
 }
+
+/**
+ * Iterates over a byte[] and prints out each individual byte's
+ * hexadecimal ASCII encoding. Guaranteed to print 2 ASCII characters
+ * per byte. Used instead of sprintf() for performance gain.
+ * @param *data The byte array to iterate through, from MSB to LSB
+ * @param len The length of the byte array
+ * Credit: https://forum.arduino.cc/index.php?topic=38107.0
+ */
+void printToHex(uint8_t *data, uint8_t len) { // prints arbitrary byte[] data in hex
+  char tmp[len*2 + 1]; // 2 nibbles per byte, plus one for string terminator
+  byte nibble;
+  uint8_t j=0;
+  for (uint8_t i = 0; i < len; i++) {
+      
+    // To convert a single digit number into its ascii, add 48 ('0')
+    // To convert numbers 10-16 into characters 'a' - 'f', add 87 ('a' - 10)
+    // Note that the difference between these conversion constants is 39
+    nibble = (data[i] >> 4) | 48; // Grab the most significant nibble, add 48 ('0') to it
+    if (nibble > 57) tmp[j] = nibble + (byte)39; // 57 == '9', add 39 ('a' - 10 - '0')
+    else tmp[j] = nibble ;
+    j++;
+
+    // do exactly the same for the least significant nibble
+    nibble = (data[i] & 0x0F) | 48;
+    if (nibble > 57) tmp[j] = nibble + (byte)39; 
+    else tmp[j] = nibble;
+    j++;
+  }
+  tmp[len*2] = 0; // String terminator for printing
+  Serial.print(tmp); // print out generated ASCII
+}
+
+
 

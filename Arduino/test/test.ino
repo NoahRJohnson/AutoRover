@@ -42,13 +42,19 @@ volatile long enc2_count = 0L;
 void setup()
 {
   Serial.begin(9600);
+  //long x = 0x00000F00;
+  //byte y = 0xCA;
+  
+  //printHex8((uint8_t*)&x, 4);
 
+  
+  
   // Control rover through sabertooth r/c mode turn and throttle sticks
   //throttle.attach(throttlePin);
   //turn.attach(turnPin);
   
-  sonicServo.attach(sonicServoPin);
-  sonicServo.write(SERVO_RIGHT);
+  //sonicServo.attach(sonicServoPin);
+  //sonicServo.write(SERVO_RIGHT);
   
   // Tell motors not to move.
   //throttle.write(130);
@@ -154,7 +160,65 @@ void processSerialInput() {
   }
 }
 
+void printToHex(uint8_t *data, uint8_t len) { // prints arbitrary byte[] data in hex
+  char tmp[len*2 + 1]; // 2 nibbles per byte, plus one for string terminator
+  byte nibble;
+  uint8_t j=0;
+  for (uint8_t i = len-1; i >= 0; i--) {
+      
+    // To convert a single digit number into its ascii, add 48 ('0')
+    // To convert numbers 10-16 into characters 'a' - 'f', add 87 ('a' - 10)
+    // Note that the difference between these conversion constants is 39
+    nibble = (data[i] >> 4) | 48;
+    if (nibble > 57) tmp[j] = nibble + (byte)39;
+    else tmp[j] = nibble ;
+    j++;
+
+    // do exactly the same for the least significant nibble
+    nibble = (data[i] & 0x0F) | 48;
+    if (nibble > 57) tmp[j] = nibble + (byte)39; 
+    else tmp[j] = nibble;
+    j++;
+  }
+  tmp[len*2] = 0;
+  Serial.println(tmp);
+}
+
+void PrintHex83(uint8_t *data, uint8_t length) // prints 8-bit data in hex
+{
+ char tmp[length*2+1];
+ byte first ;
+ int j=0;
+ for (uint8_t i=0; i<length; i++) 
+ {
+   first = (data[i] >> 4) | 48;
+   if (first > 57) tmp[j] = first + (byte)39;
+   else tmp[j] = first ;
+   j++;
+
+   first = (data[i] & 0x0F) | 48;
+   if (first > 57) tmp[j] = first + (byte)39; 
+   else tmp[j] = first;
+   j++;
+ }
+ tmp[length*2] = 0;
+ Serial.println(tmp);
+}
+
 void loop() {
+  long x = 0xB0000FCA;
+  byte y = 0xCA;
+  uint8_t bytes[4];
+
+  bytes[0] = (x >> 24) & 0xFF;
+  bytes[1] = (x >> 16) & 0xFF;
+  bytes[2] = (x >> 8) & 0xFF;
+  bytes[3] = x & 0xFF;
+  Serial.println("START");
+  PrintHex83(bytes, 4);
+
+  delay(1000);
+  /*
   uint8_t servoPos, ping_time_uS;
 
   servoPos = SERVO_RIGHT; // initial servo position
@@ -197,7 +261,7 @@ void loop() {
   }
 
   
-
+*/
 }
 
 /**
