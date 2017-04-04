@@ -19,4 +19,13 @@ public class Main {
 
 
     }
+
+    /**
+     *
+     * @param start
+     * @param end
+     */
+    private void navigateBetweenNodes(GPS_Node start, GPS_Node end) {
+
+    }
 }
