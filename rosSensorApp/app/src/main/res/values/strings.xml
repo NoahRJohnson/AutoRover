@@ -1,0 +1,7 @@
+<resources>
+    <string name="app_name">GPS_Over_USB</string>
+    <string name="disconnect">Disconnect</string>
+    <string name="text_message_success">You are connected!</string>
+    <string name="text_message_failure">You are not connected.</string>
+    <string name="button_connect">Connect</string>
+</resources>
