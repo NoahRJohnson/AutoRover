@@ -1,0 +1,68 @@
+apply plugin: 'com.android.application'
+
+android {
+    compileSdkVersion 25
+    buildToolsVersion "25.0.2"
+    defaultConfig {
+        applicationId "johnson13.noah.ncf.edu.gps_over_usb"
+        minSdkVersion 21
+        targetSdkVersion 25
+        versionCode 1
+        versionName "1.0"
+        testInstrumentationRunner "android.support.test.runner.AndroidJUnitRunner"
+    }
+    buildTypes {
+        release {
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+        }
+    }
+}
+
+android.packagingOptions {
+    exclude 'META-INF/LICENSE.txt'
+    exclude 'META-INF/NOTICE.txt'
+}
+
+/**
+ * Project specific repositories (for rosjava)
+ */
+repositories {
+    maven { url "https://github.com/rosjava/rosjava_mvn_repo/raw/master" }
+}
+
+dependencies {
+    /**
+     * Excluding prevents bug where multiple versions
+     * of dependencies try to load. Described here:
+     * https://github.com/rosjava/android_core/issues/209
+     */
+    compile ('org.ros.android_core:android_15:[0.3,0.4)') {
+        exclude group: 'junit'
+        exclude group: 'xml-apis'
+        exclude group: 'com.google.code.findbugs'
+    }
+
+    // ROS msgs
+    compile ('org.ros.rosjava_messages:std_msgs:[0.5,)') {
+        exclude group: 'com.google.code.findbugs'
+    }
+    compile ('org.ros.rosjava_messages:sensor_msgs:[1.10,)')  {
+        exclude group: 'com.google.code.findbugs'
+    }
+    compile ('org.ros.rosjava_messages:geometry_msgs:[1.10,)') {
+        exclude group: 'com.google.code.findbugs'
+    }
+
+    //compile 'com.google.android.gms:play-services:10.2.0'
+    compile 'com.google.android.gms:play-services-location:10.2.1'
+    compile 'com.google.android.gms:play-services-maps:10.2.1'
+    compile 'com.google.android.gms:play-services-places:10.2.1'
+
+    compile fileTree(dir: 'libs', include: ['*.jar'])
+    androidTestCompile('com.android.support.test.espresso:espresso-core:2.2.2', {
+        exclude group: 'com.android.support', module: 'support-annotations'
+    })
+    //compile 'com.android.support:appcompat-v7:25.3.0'
+    testCompile 'junit:junit:4.12'
+}

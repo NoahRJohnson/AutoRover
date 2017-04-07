@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">RosSensors</string>
+    <string name="shutdown">Shutdown</string>
+</resources>
