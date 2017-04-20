@@ -15,8 +15,8 @@
 #define enc1BPin 4 // Channel B output
 #define enc2APin 3 // Hardware interrupt pin, channel A output
 #define enc2BPin 7 // Channel B output
-#define throttlePin 5 // S1 on Sabertooth
-#define turnPin 6 // S2 on Sabertooth
+#define rightMotorsPin 5 // S1 on Sabertooth
+#define leftMotorsPin 6 // S2 on Sabertooth
 #define sonicServoPin 9 // standard Parallax servo attached to ultrasonic sensor
 #define TRIGGER_PIN  11  // Arduino pin tied to trigger pin on the ultrasonic sensor.
 #define ECHO_PIN     11  // Arduino pin tied to echo pin on the ultrasonic sensor.
@@ -24,7 +24,7 @@
 #define MAX_DISTANCE 300 // Maximum distance we want to ping for (in centimeters). Maximum sensor distance is rated at 400-500cm.
 NewPing sonar(TRIGGER_PIN, ECHO_PIN, MAX_DISTANCE); // Setup NewPing to use the appropriate pins and settings
 
-Servo throttle, turn; // Sabertooth R/C control. 44 deg full forward, 94 stopped, 144 deg full reverse
+Servo rightMotors, leftMotors; // Sabertooth R/C differential control. 44 deg full forward, 94 stopped, 144 deg full reverse
 Servo sonicServo; // standard Parallax servo attached to ultrasonic sensor. xx left, 66 center, xx 
 
 /*
@@ -59,9 +59,9 @@ static int8_t encoder_lookup_table[] = {0,0,0,-1,0,0,1,0,0,1,0,0,-1,0,0,0};
 void setup() {
   Serial.begin(BAUD_RATE);
 
-  // Control rover through sabertooth r/c mode turn and throttle sticks
-  throttle.attach(throttlePin);
-  turn.attach(turnPin);
+  // Control rover's left and right wheels separately
+  rightMotors.attach(rightMotorsPin);
+  leftMotors.attach(leftMotorsPin);
 
   // Control standard servo
   sonicServo.attach(sonicServoPin);
@@ -140,8 +140,8 @@ void encoder2_isr() {
 /*
  * This routine is run between each movement of the ultrasonic
  * servo. Commands from the processing unit are expected to be
- * three bytes long, with the first byte indicating whether the throttle
- * or turn sticks are to be modified, and the next two bytes storing
+ * three bytes long, with the first byte indicating whether the right
+ * or left motor speeds are to be modified, and the next two bytes storing
  * the hexadecimal ASCII encoding of the degree to be written.
  * Multiple commands may be available from
  * the Arduino's receiving buffer, which stores up to 64 bytes (or
@@ -154,10 +154,10 @@ void processSerialInput() {
 
   while (Serial.available() > 3) {
     command = (char) Serial.read();
-    if (command == 'P') { // Power (throttle)
-      target = throttle;
-    } else if (command == 'T') { // Turn
-      target = turn;
+    if (command == 'L') { // Left motors
+      target = leftMotors;
+    } else if (command == 'R') { // Right motors
+      target = rightMotors;
     } else { // unrecognized command
       Serial.print("E: cmd "); Serial.println(command);
       break;
