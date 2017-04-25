@@ -11,17 +11,17 @@
 #define BAUD_RATE 9600 // 960 bytes per second, roughly 1 ms between bytes
 
 // Define Arduino digital pin connections 
-#define enc1APin 2 // Hardware interrupt pin, channel A output
-#define enc1BPin 4 // Channel B output
-#define enc2APin 3 // Hardware interrupt pin, channel A output
-#define enc2BPin 7 // Channel B output
+#define encLeftAPin 2 // Hardware interrupt pin, channel A output
+#define encLeftBPin 4 // Channel B output
+#define encRightAPin 3 // Hardware interrupt pin, channel A output
+#define encRightBPin 7 // Channel B output
 #define rightMotorsPin 5 // S1 on Sabertooth
 #define leftMotorsPin 6 // S2 on Sabertooth
 #define sonicServoPin 9 // standard Parallax servo attached to ultrasonic sensor
 #define TRIGGER_PIN  11  // Arduino pin tied to trigger pin on the ultrasonic sensor.
 #define ECHO_PIN     11  // Arduino pin tied to echo pin on the ultrasonic sensor.
 
-#define MAX_DISTANCE 300 // Maximum distance we want to ping for (in centimeters). Maximum sensor distance is rated at 400-500cm.
+#define MAX_DISTANCE 300 // Maximum distance we want to ping for (in centimeters). 3 meters is the limit of the PING))) sensor.
 NewPing sonar(TRIGGER_PIN, ECHO_PIN, MAX_DISTANCE); // Setup NewPing to use the appropriate pins and settings
 
 Servo rightMotors, leftMotors; // Sabertooth R/C differential control. 44 deg full forward, 94 stopped, 144 deg full reverse
@@ -51,10 +51,10 @@ Servo sonicServo; // standard Parallax servo attached to ultrasonic sensor. xx l
  * might have month-long continuous runtimes, this error should be handled in the
  * loop() routine, using interrupt guards to check the encoder values.
  */
-volatile long enc1_count = 0L;
-volatile long enc2_count = 0L;
+volatile long encLeftCount = 0L;
+volatile long encRightCount = 0L;
 
-static int8_t encoder_lookup_table[] = {0,0,0,-1,0,0,1,0,0,1,0,0,-1,0,0,0};
+const int8_t encoder_lookup_table[] = {0,0,0,-1,0,0,1,0,0,1,0,0,-1,0,0,0};
 
 void setup() {
   Serial.begin(BAUD_RATE);
@@ -71,8 +71,8 @@ void setup() {
   // the encoders. The Uno only has 2 hardware interrupt pins.
   // Digital pins default to INPUT mode, so we don't have to set
   // that here.
-  attachInterrupt(digitalPinToInterrupt(enc1APin), encoder1_isr, CHANGE);
-  attachInterrupt(digitalPinToInterrupt(enc2APin), encoder2_isr, CHANGE);
+  attachInterrupt(digitalPinToInterrupt(encLeftAPin), encoderLeft_isr, CHANGE);
+  attachInterrupt(digitalPinToInterrupt(encRightAPin), encoderRight_isr, CHANGE);
   
   //delay(5000);
 }
@@ -82,9 +82,9 @@ void setup() {
  * http://makeatronics.blogspot.com/2013/02/efficiently-reading-quadrature-with.html
  * 
  * ISRs must be as fast as possible, so rather than clear coding practice (like using
- * (1 << enc1APin), I will conserve operations by using constants where I can (0b100).
+ * (1 << encLeftAPin), I will conserve operations by using constants where I can (0b100).
  */
-void encoder1_isr() {
+void encoderLeft_isr() {
   static uint8_t enc_val = 0;
 
   enc_val = enc_val << 2; // Store the previous 2-bit code
@@ -104,7 +104,7 @@ void encoder1_isr() {
    * a unique ID able to identify which direction (CW or CCW) the motor
    * attached to the encoder has moved.
    */ 
-  enc1_count = enc1_count + encoder_lookup_table[enc_val & 0b1111];
+  encLeftCount = encLeftCount + encoder_lookup_table[enc_val & 0b1111];
 }
 
 /*
@@ -112,9 +112,9 @@ void encoder1_isr() {
  * http://makeatronics.blogspot.com/2013/02/efficiently-reading-quadrature-with.html
  * 
  *  ISRs must be as fast as possible, so rather than clear coding practice (like using
- * (1 << enc2APin), I will minimize operations by using constants where I can (0b1000).
+ * (1 << encRightAPin), I will minimize operations by using constants where I can (0b1000).
  */
-void encoder2_isr() {
+void encoderRight_isr() {
   static uint8_t enc_val = 0;
 
   enc_val = enc_val << 2; // Store the previous 2-bit code
@@ -134,7 +134,7 @@ void encoder2_isr() {
    * a unique ID able to identify which direction (CW or CCW) the motor
    * attached to the encoder has moved.
    */ 
-  enc2_count = enc2_count + encoder_lookup_table[enc_val & 0b1111];
+  encRightCount = encRightCount + encoder_lookup_table[enc_val & 0b1111];
 }
 
 /*
@@ -195,7 +195,7 @@ void processSerialInput() {
 }
 
 /**
- * This function loops continuously while the Arduino runs.
+ * This function is executed continuously while the Arduino runs.
  */
 void loop() {
   uint8_t servoPos;
@@ -217,7 +217,7 @@ void loop() {
     pushSensorUpdate(servoPos, ping_time_uS);
 
     // increment by step size, but don't overshoot
-    servoPos += (servoPos + SERVO_STEP_SZ <= SERVO_LEFT) ? SERVO_STEP_SZ : (SERVO_LEFT - servoPos); 
+    servoPos = min(servoPos + SERVO_STEP_SZ, SERVO_LEFT);
   }
 
   while (servoPos > SERVO_RIGHT) {
@@ -234,7 +234,7 @@ void loop() {
     pushSensorUpdate(servoPos, ping_time_uS);
 
     // decrement by step size, but don't undershoot
-    servoPos -= (servoPos - SERVO_STEP_SZ >= SERVO_RIGHT) ? SERVO_STEP_SZ : (servoPos - SERVO_RIGHT);
+    servoPos = max(servoPos - SERVO_STEP_SZ, SERVO_RIGHT);
   }
   
 }
@@ -248,12 +248,13 @@ void loop() {
  * The baud rate is 9600, so this routine should 
  * be called less than (960 / 26) =~ 36 times per second.
  * This routine is called roughly (1000 / 50) = 20
- * times per second. Thus 20 * 26 = 520 bytes per second are 
+ * times per second. (This gives an encoder resolution
+ * of 20 Hz). Thus 20 * 26 = 520 bytes per second are 
  * sent over TX.
  */
 void pushSensorUpdate(uint8_t servoPos, uint16_t ping_uS) {
 
-  long enc1_cnt_temp, enc2_cnt_temp;
+  long encLeftCount_temp, encRightCount_temp;
   uint8_t bytes[4];
 
   /*
@@ -263,11 +264,22 @@ void pushSensorUpdate(uint8_t servoPos, uint16_t ping_uS) {
    */
   noInterrupts(); // turn off all interrupts
   // worst case scenario, two encoder interrupt flags and serial RX flag are set right after noInterrupts();
-  enc1_cnt_temp = enc1_count; // long is 4 bytes, so assignment translates to 4 machine instructions.
-  enc2_cnt_temp = enc2_count; // also 4 machine instructions
+  encLeftCount_temp = encLeftCount; // long is 4 bytes, so assignment translates to 4 machine instructions.
+  encRightCount_temp = encRightCount; // also 4 machine instructions
   interrupts(); // turn all interrupts back on, run next statement, then handle any that were flagged in-between guards
   // The next statement is guaranteed to run before flagged interrupts are handled (I actually don't want this feature, but wtv, we should have time to do it)
 
+  /*
+   * The encoders are physically rotated 180 degrees from each other. So when the rover
+   * is going forward, the two motors are rotating in opposite directions. Since we
+   * still want to report both angular positions as positive when the wheels are
+   * moving forward, we flip the sign of the right encoder's value before reporting it. 
+   * We could simply subtract the lookup table's value in encoderRight_isr() instead, 
+   * but since subtraction is actually compiled to machine instructions which invert 
+   * the sign and then add, this would slow down the ISR marginally. To avoid that, 
+   * we accomplish the same goal here.
+   */
+  encRightCount_temp = -1 * encRightCount_temp
   /* 
    *  Send sensor data to processing unit over serial port, with descriptive start bytes.
    *  None of the start bytes should be in the range '0' - '9' or 'a' - 'f', since those 
@@ -278,19 +290,19 @@ void pushSensorUpdate(uint8_t servoPos, uint16_t ping_uS) {
    *  P == Ultrasonic ping time (in micro seconds) measured at the given servo angle
    */
   Serial.print('L'); // sends 1 byte over serial
-  // Break up the encoder 1 position long into 4 bytes, and send each byte as HEX ASCII
-  bytes[0] = (enc1_cnt_temp >> 24) & 0xFF;
-  bytes[1] = (enc1_cnt_temp >> 16) & 0xFF;
-  bytes[2] = (enc1_cnt_temp >> 8)  & 0xFF;
-  bytes[3] =  enc1_cnt_temp        & 0xFF;
+  // Break up the left encoder position long into 4 bytes, and send each byte as HEX ASCII
+  bytes[0] = (encLeftCount_temp >> 24) & 0xFF;
+  bytes[1] = (encLeftCount_temp >> 16) & 0xFF;
+  bytes[2] = (encLeftCount_temp >> 8)  & 0xFF;
+  bytes[3] =  encLeftCount_temp        & 0xFF;
   printToHex(bytes, 4); // sends 8 bytes over serial
   
   Serial.print('R'); // sends 1 byte over serial
-  // Break up the encoder 2 position long into 4 bytes, and send each byte as HEX ASCII
-  bytes[0] = (enc2_cnt_temp >> 24) & 0xFF;
-  bytes[1] = (enc2_cnt_temp >> 16) & 0xFF;
-  bytes[2] = (enc2_cnt_temp >> 8)  & 0xFF;
-  bytes[3] =  enc2_cnt_temp        & 0xFF;
+  // Break up the right encoder position long into 4 bytes, and send each byte as HEX ASCII
+  bytes[0] = (encRightCount_temp >> 24) & 0xFF;
+  bytes[1] = (encRightCount_temp >> 16) & 0xFF;
+  bytes[2] = (encRightCount_temp >> 8)  & 0xFF;
+  bytes[3] =  encRightCount_temp        & 0xFF;
   printToHex(bytes, 4); // sends 8 bytes over serial
    
   Serial.print('S'); // sends 1 byte over serial
