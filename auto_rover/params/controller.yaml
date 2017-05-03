@@ -1,0 +1,103 @@
+
+# CALIBRATE THESE PARAMETERS EVERY TIME BEFORE USE:
+#################################################################################################
+# The number of encoder ticks per meter.							#
+ticks_meter: 16281
+
+# The current air temperature.									#
+ambient_air_temperature_farenheit: 78.9
+
+# PID Parameters optimized according to:							#
+# http://wiki.ros.org/differential_drive/tutorials/setup#Optimizing_the_PID_parameters		#
+
+# Proportional gain to the PID controller.							#
+Kp: 30
+
+# Integral gain to the PID controller. 								#
+Ki: 0
+
+# Derivative gain to the PID controller. 							#
+Kd: 0
+#################################################################################################
+
+
+# The name of the base frame of the robot.
+base_frame_id: base_link
+
+# The name of the odometry reference frame. 
+odom_frame_id: odom
+
+# The name of the frame of the ultrasound sensor.
+ultrasound_frame_id: ultrasound
+
+# Distance between the wheels measured to be 11.125 inches (0.282575 meters).
+base_width: 0.282575
+
+# The min and max value the encoder should output. Used to calculate odometry when the values wrap around.
+encoder_min: -2147483648
+encoder_max: 2147483647
+
+# The number of velocity target messages that will be published after the last twist message is recieved.
+# After that, the wheels are stopped.
+timeout_ticks: 4
+
+# Minimum output of the motor_cmd topic. 
+out_min: -50
+
+# Maximum output of the motor_cmd topic. 
+out_max: 50
+
+# The velocity used in the PID calculations and published as wheel_vel is calculated from rolling_pts points. 
+rolling_pts: 5
+
+# If the velocity drops below vel_threshold, we consider the wheel stopped. This is needed because 
+# technically we can never really know that a wheel's velocity is zero. As we approach zero meters/sec,
+# the rotary encoder ticks get spaced further apart, so we can only really estimate an upper bound of
+# velocity from the time the last tick was received. If that upper bound is < vel_threshold, we 
+# consider it 0. 
+vel_threshold: 0.001
+
+
+########################
+# Node-specific params #
+########################
+range_converter:
+  # [x_translation, y_translation, z_translation] from base_frame_id
+  # to ultrasound_frame_id.
+  # From measurements, the center of the ultrasonic sensor is 
+  # 2.375 inches (0.060325 meters) in front of the center
+  # of the rover.
+  ultrasound_frame_translation: [0.060325, 0, 0]
+
+arduino_bridge:
+  # Which serial port the Arduino connects over. This port must be setup with your
+  # operating system's udev rules.
+  # See https://www.clearpathrobotics.com/2015/01/arduino-ros/
+  port: /dev/arduino
+
+  # Baud rate, or number of symbols (bits in our case) transferred over the serial
+  # connection between the Arduino and this laptop per second. Must be set to the
+  # same value that the Arduino sketch uses. Since the Arduino uses 10 bits per
+  # byte by default, divide this by 10 to get the bytes per second going over the
+  # wire.
+  baud: 57600
+
+raw_odometry_publisher:
+  # The rate at which the odometry messages are published (Hz). 
+  rate: 10 
+
+twist_to_motors:
+  # The rate that the target velocity messages will be published (in Hz) 
+  rate: 50 
+
+lpid_velocity:
+  # The frequency at which to publish motor power commands, as well as the current wheel velocity (in Hz)
+  rate: 20
+  which_wheel: left
+
+rpid_velocity:
+  # The frequency at which to publish motor power commands, as well as the current wheel velocity (in Hz)
+  rate: 20
+  which_wheel: right
+
+

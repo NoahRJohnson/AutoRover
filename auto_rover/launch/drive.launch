@@ -1,0 +1,13 @@
+<!--
+     This launch file only starts up the virtual_joystick
+	node from the differential_drive package, which
+	allows a user to manually command the rover. Don't
+	launch this file if the ROS navigation stack is
+	being used instead to autonomously drive the rover.
+-->
+<launch>
+	<!-- See this yaml file for parameters affecting these nodes. -->
+	<rosparam command="load" file="$(find auto_rover)/params/drive.yaml" />
+
+	<node pkg="differential_drive" type="virtual_joystick.py" name="virtual_joystick" output="screen" />
+</launch>

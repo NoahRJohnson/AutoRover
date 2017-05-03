@@ -1,0 +1,17 @@
+# All of these parameters are for the virtual_joystick node
+# which is currently the only node drive.launch starts.
+virtual_joystick:
+  # The rate (Hz) at which to publish the twist topic 
+  publish_rate: 50
+
+  # The minimum forward velocity to publish (in meters/second)
+  x_min: -1.0
+
+  # The maximum forward velocity to publish (in meters/second)
+  x_max: 1.0
+
+  # The minimum rotational velocity to publish (in radians/second)
+  r_min: -0.5
+
+  # The maximum rotational velocity to publish (in radians/second)
+  r_min: 0.5

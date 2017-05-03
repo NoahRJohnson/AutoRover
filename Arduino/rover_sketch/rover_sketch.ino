@@ -1,16 +1,26 @@
 #include <Servo.h>
 #include <NewPing.h>
+#include <ros.h>
+#include <std_msgs/Int8.h>
+#include <std_msgs/UInt16.h>
+#include <auto_rover/EncCount.h>
 
-// Make sure that Arduino GND is connected to motor driver's GND
+/************************
+ * Hardware Definitions *
+ ************************/
+ 
+// Make sure that the Arduino's GND is connected to motor driver's GND
 
 /**
  * Number of symbols that will be transferred over serial port
  * per second. Arduino serial defaults to 8N1 which uses 10 symbols
  * per byte of data (1 start symbol, 8 data bits, 1 stop symbol).
  */
-#define BAUD_RATE 9600 // 960 bytes per second, roughly 1 ms between bytes
+#define BAUD_RATE 57600 // 960 bytes per second, roughly 1 ms between bytes
 
-// Define Arduino digital pin connections 
+/** 
+ * Arduino digital pin connection definitions 
+ */
 #define encLeftAPin 2 // Hardware interrupt pin, channel A output
 #define encLeftBPin 4 // Channel B output
 #define encRightAPin 3 // Hardware interrupt pin, channel A output
@@ -25,6 +35,7 @@
 NewPing sonar(TRIGGER_PIN, ECHO_PIN, MAX_DISTANCE); // Setup NewPing to use the appropriate pins and settings
 
 Servo rightMotors, leftMotors; // Sabertooth R/C differential control. 44 deg full forward, 94 stopped, 144 deg full reverse
+#define MOTOR_CENTER 94
 Servo sonicServo; // standard Parallax servo attached to ultrasonic sensor. xx left, 66 center, xx 
 
 /*
@@ -38,10 +49,16 @@ Servo sonicServo; // standard Parallax servo attached to ultrasonic sensor. xx l
 #define SERVO_RIGHT 0 // Degree corresponding to ping sensor pointing right
 
 #define SERVO_STEP_SZ 1 // How many degrees to increment or decrement servo sweep by at each step (should be a divisor of 5)
-#define SERVO_STEP_DELAY 50 // How many ms to wait in-between servo steps, and thus between pings
+#define SERVO_STEP_DELAY 100UL // How many ms to wait in-between servo steps, and thus between pings and encoder readings (must be UL for timer compare)
 #define SERVO_DEFAULT_DEG 93 // Which angular position the servo defaults to when attached but given no directions.
 
-/*
+
+
+/**************************************************************
+ * Interrupt Service Routines for the left and right encoders *
+ **************************************************************/
+ 
+ /*
  * Signed longs are 4 bytes long (about -2 billion to 2 billion).
  * There are about 680 counts per second of the rotary encoders, so
  * in theory the earliest that these longs can under- or over-flow 
@@ -55,39 +72,17 @@ volatile long encLeftCount = 0L;
 volatile long encRightCount = 0L;
 
 const int8_t encoder_lookup_table[] = {0,0,0,-1,0,0,1,0,0,1,0,0,-1,0,0,0};
-
-void setup() {
-  Serial.begin(BAUD_RATE);
-
-  // Control rover's left and right wheels separately
-  rightMotors.attach(rightMotorsPin);
-  leftMotors.attach(leftMotorsPin);
-
-  // Control standard servo
-  sonicServo.attach(sonicServoPin);
-  sonicServo.write(SERVO_RIGHT);
-
-  // Set up hardware interrupts on the Output A pins for both
-  // the encoders. The Uno only has 2 hardware interrupt pins.
-  // Digital pins default to INPUT mode, so we don't have to set
-  // that here.
-  attachInterrupt(digitalPinToInterrupt(encLeftAPin), encoderLeft_isr, CHANGE);
-  attachInterrupt(digitalPinToInterrupt(encRightAPin), encoderRight_isr, CHANGE);
-  
-  //delay(5000);
-}
-
-/*
- * Interrupt Service Routine
+/**
+ * Credit:
  * http://makeatronics.blogspot.com/2013/02/efficiently-reading-quadrature-with.html
  * 
  * ISRs must be as fast as possible, so rather than clear coding practice (like using
  * (1 << encLeftAPin), I will conserve operations by using constants where I can (0b100).
  */
 void encoderLeft_isr() {
-  static uint8_t enc_val = 0;
+  static uint8_t encLeft_val = 0;
 
-  enc_val = enc_val << 2; // Store the previous 2-bit code
+  encLeft_val = encLeft_val << 2; // Store the previous 2-bit code
 
   /* 
    *  PIND returns input readings from pins 0-7 as a byte.
@@ -98,140 +93,182 @@ void encoderLeft_isr() {
    *  second-least significant bit of the enc_val 
    *  variable, respectively.
    */
-  enc_val = enc_val | ( ((PIND & 0b100) >> 1) | ((PIND & 0b10000) >> 4) );
+  encLeft_val = encLeft_val | ( ((PIND & 0b100) >> 1) | ((PIND & 0b10000) >> 4) );
 
   /* The previous 2-bit code and the current 2-bit code together create
    * a unique ID able to identify which direction (CW or CCW) the motor
    * attached to the encoder has moved.
    */ 
-  encLeftCount = encLeftCount + encoder_lookup_table[enc_val & 0b1111];
+  encLeftCount = encLeftCount + encoder_lookup_table[encLeft_val & 0b1111];
 }
-
-/*
- * Interrupt Service Routine
- * http://makeatronics.blogspot.com/2013/02/efficiently-reading-quadrature-with.html
- * 
- *  ISRs must be as fast as possible, so rather than clear coding practice (like using
- * (1 << encRightAPin), I will minimize operations by using constants where I can (0b1000).
- */
 void encoderRight_isr() {
-  static uint8_t enc_val = 0;
+  static uint8_t encRight_val = 0;
 
-  enc_val = enc_val << 2; // Store the previous 2-bit code
+  encRight_val = encRight_val << 2; // Store the previous 2-bit code
 
-  /* 
-   *  PIND returns input readings from pins 0-7 as a byte.
-   *  https://www.arduino.cc/en/Reference/PortManipulation
-   *  The below code uses bit shifting and masking to put
-   *  the values of digital input pins 7 (output B) and 
-   *  3 (output A) into the least significant bit and 
-   *  second-least significant bit of the enc_val 
-   *  variable, respectively.
-   */
-  enc_val = enc_val | ( ((PIND & 0b1000) >> 2) | ((PIND & 0b10000000) >> 7) );
+  encRight_val = encRight_val | ( ((PIND & 0b1000) >> 2) | ((PIND & 0b10000000) >> 7) );
 
-  /* The previous 2-bit code and the current 2-bit code together create
-   * a unique ID able to identify which direction (CW or CCW) the motor
-   * attached to the encoder has moved.
-   */ 
-  encRightCount = encRightCount + encoder_lookup_table[enc_val & 0b1111];
+  encRightCount = encRightCount + encoder_lookup_table[encRight_val & 0b1111];
 }
 
-/*
- * This routine is run between each movement of the ultrasonic
- * servo. Commands from the processing unit are expected to be
- * three bytes long, with the first byte indicating whether the right
- * or left motor speeds are to be modified, and the next two bytes storing
- * the hexadecimal ASCII encoding of the degree to be written.
- * Multiple commands may be available from
- * the Arduino's receiving buffer, which stores up to 64 bytes (or
- * 21 commands).
+
+/************************
+ * ROS Global Variables *
+ ************************/
+
+ros::NodeHandle nh;
+
+// Declare topic names in PROGMEM
+const char encoder_topic[] PROGMEM = { "/odom/encTicks" };
+const char ping_time_topic[] PROGMEM = { "/ping/timeUS" };
+const char ping_angle_topic[] PROGMEM = { "/ping/angleDeg" };
+const char cmd_left_motors_topic[] PROGMEM = { "/cmd/left" };
+const char cmd_right_motors_topic[] PROGMEM = { "/cmd/right" };
+
+/** 
+ *  Ros publishers for encoder ticks, range ping time, 
+ *  and servo angle
  */
-void processSerialInput() { 
-  byte val = 0;
-  char command, h1, h2;
-  Servo target;
+auto_rover::EncCount encMsg;
+std_msgs::UInt16 pingUSMsg;
+std_msgs::Int8 pingAngleDegMsg;
 
-  while (Serial.available() > 3) {
-    command = (char) Serial.read();
-    if (command == 'L') { // Left motors
-      target = leftMotors;
-    } else if (command == 'R') { // Right motors
-      target = rightMotors;
-    } else { // unrecognized command
-      Serial.print("E: cmd "); Serial.println(command);
-      break;
-    }
+ros::Publisher encPub(FCAST(encoder_topic), &encMsg);
+ros::Publisher pingTimePub(FCAST(ping_time_topic), &pingUSMsg);
+ros::Publisher pingAngleDegPub(FCAST(ping_angle_topic), &pingAngleDegMsg);
 
-    h1 = Serial.read(); // hexadecimal ASCII byte 1, representing first nibble of val
-    h2 = Serial.read(); // hexadecimal ASCII byte 1, representing second nibble of val
+/**
+ * Callbacks for cmd_left_motors_topic and cmd_right_motors_topic topics
+ */
+void leftMotors_cb( const std_msgs::Int8& cmd_msg){
+  if (cmd_msg.data < -50 || cmd_msg.data > 50)
+    nh.logerror(F("Bad cmd"));
+  else
+    // positive data implies go forward, but that corresponds to smaller R/C pulse width
+    leftMotors.write(MOTOR_CENTER - cmd_msg.data); // set servo angle, should be from 0-180
+}
+void rightMotors_cb( const std_msgs::Int8& cmd_msg){
+  if (cmd_msg.data < -50 || cmd_msg.data > 50)
+    nh.logerror(F("Bad cmd"));
+  else
+    // positive data implies go forward, but that corresponds to smaller R/C pulse width
+    rightMotors.write(MOTOR_CENTER - cmd_msg.data); // set servo angle, should be from 0-180
+}
 
-    // Double check that all bytes are hexadecimal ASCII encodings of digits
-    if(h1 >= '0' && h1 <= '9') {
-      val |= ((h1 - 48) << 4); // 48 == '0'
-    } else if (h1 >= 'a' && h1 <= 'f') {
-      val |= ((h1 - 87) << 4); // 97 == 'a', a in hex == 10
-    } else {
-      Serial.print("E: h1 "); Serial.println(h1);
-      break;
-    } 
+/** 
+ *  Ros subscribers for cmd_left_motors_topic and cmd_right_motors_topic
+ *  topics, linking to callbacks
+ */
+ros::Subscriber<std_msgs::Int8> leftMotorsSub(FCAST(cmd_left_motors_topic), leftMotors_cb);
+ros::Subscriber<std_msgs::Int8> rightMotorsSub(FCAST(cmd_right_motors_topic), rightMotors_cb);
 
-    if(h2 >= '0' && h2 <= '9') {
-      val |= (h2 - 48); // 48 == '0';
-    } else if (h2 >= 'a' && h2 <= 'f') {
-      val |= (h2 - 87); // 97 == 'a', a in hex == 10;
-    } else {
-      Serial.print("E: h2 "); Serial.println(h2);
-      break;
-    } 
-    
-    if (val >= 0 && val <= 180) {
-      target.write(val);
-    } else { // If value is outside the acceptable servo range, print an error message  
-      Serial.print("E: val "); Serial.println(val);
-    }
-    
+
+
+/**
+ * This function is executed once, when the board is first
+ * powered on.
+ */
+void setup() {
+  
+   /*******************************
+   * Setup Arduino hardware stuff *
+   ********************************/
+   
+  /*
+   *  Attach the correct digital pins to the
+   *  Servo objects. We'll use these objects
+   *  to write command R/C servo pulse signals.
+   */
+  rightMotors.attach(rightMotorsPin); // Attach motor driver S1 to its digital pin
+  leftMotors.attach(leftMotorsPin); // Attach motor driver S2 to its digital pin
+  sonicServo.attach(sonicServoPin); // Attach standard servo to its digital pin
+  sonicServo.write(SERVO_RIGHT); // Set its initial position all the way to the right
+
+  /*
+   * Set up hardware interrupts on the Output A pins for both
+   * the encoders. Digital pins default to INPUT mode, so we 
+   * don't have to set that here.
+   */
+  attachInterrupt(digitalPinToInterrupt(encLeftAPin), encoderLeft_isr, CHANGE);
+  attachInterrupt(digitalPinToInterrupt(encRightAPin), encoderRight_isr, CHANGE);
+
+
+  /*******************
+   * Setup ROS stuff *
+   *******************/
+  
+  nh.getHardware()->setBaud(BAUD_RATE); // adjust baud rate before initializing this node
+  
+  // Register this node with Master
+  nh.initNode();
+
+  // Advertise sensor publishers
+  nh.advertise(encPub);
+  //nh.spinOnce();
+  nh.advertise(pingTimePub);
+  //nh.spinOnce();
+  nh.advertise(pingAngleDegPub);
+
+  // Subscribe to motor command topics
+  nh.subscribe(leftMotorsSub);
+  //nh.spinOnce();
+  nh.subscribe(rightMotorsSub);
+  
+  // Wait until we are fully connected to ROS master
+  while (!nh.connected() ){
+    nh.spinOnce();
   }
+  
+  // Ok we're done and ready to start the main loop()
+  nh.loginfo(F("Setup() finished."));
+  nh.spinOnce();
 }
 
 /**
- * This function is executed continuously while the Arduino runs.
+ * This function is executed repeatedly after setup().
  */
 void loop() {
   uint8_t servoPos;
   uint16_t ping_time_uS;
+  unsigned long timer;
 
   servoPos = SERVO_RIGHT; // initial servo position
   
   while (servoPos < SERVO_LEFT) {
     sonicServo.write(servoPos);
-
-    if (Serial.available() > 3) {
-      processSerialInput();
-    } else {
-      delay(SERVO_STEP_DELAY); // wait for servo to reach pos, and make sure we don't take too many pings per second
+    
+    // Listen for callbacks while we wait for the servo to reach servoPos,
+    // and make sure we don't take too many pings per second.
+    timer = millis();
+    while (millis() - timer <  SERVO_STEP_DELAY) {
+      nh.spinOnce(); // handle callbacks, flush serial buffers
     }
     
     ping_time_uS = sonar.ping(); // Send ping, get distance in uS (0 == NO_ECHO => outside set distance range)
 
-    pushSensorUpdate(servoPos, ping_time_uS);
+    publishSensorMessages(servoPos, ping_time_uS);
+
+    //nh.spinOnce(); // handle publishing callbacks immediately to flush serial buffers
 
     // increment by step size, but don't overshoot
     servoPos = min(servoPos + SERVO_STEP_SZ, SERVO_LEFT);
   }
-
+  
   while (servoPos > SERVO_RIGHT) {
     sonicServo.write(servoPos);
-    
-    if (Serial.available() > 3) {
-      processSerialInput();
-    } else {
-      delay(SERVO_STEP_DELAY); // wait for servo to reach pos, and make sure we don't take too many pings per second
+
+    timer = millis();
+    // Listen for callbacks while we wait for the servo to reach servoPos,
+    // and make sure we don't take too many pings per second.
+    while (millis() - timer <  SERVO_STEP_DELAY) {
+      nh.spinOnce(); // handle callbacks, flush serial buffers
     }
     
     ping_time_uS = sonar.ping(); // Send ping, get distance in uS (0 == NO_ECHO => outside set distance range)
 
-    pushSensorUpdate(servoPos, ping_time_uS);
+    publishSensorMessages(servoPos, ping_time_uS);
+
+    //nh.spinOnce(); // handle publishing callbacks immediately to flush serial buffers
 
     // decrement by step size, but don't undershoot
     servoPos = max(servoPos - SERVO_STEP_SZ, SERVO_RIGHT);
@@ -252,11 +289,10 @@ void loop() {
  * of 20 Hz). Thus 20 * 26 = 520 bytes per second are 
  * sent over TX.
  */
-void pushSensorUpdate(uint8_t servoPos, uint16_t ping_uS) {
+void publishSensorMessages(uint8_t servoPos, uint16_t ping_time_uS) {
+  int8_t t;
 
-  long encLeftCount_temp, encRightCount_temp;
-  uint8_t bytes[4];
-
+  // Fill in encoder sensor message
   /*
    * Reading from multi-byte variables which are accessed within
    * and without an ISR risks data corruption, so interrupt guards
@@ -264,87 +300,29 @@ void pushSensorUpdate(uint8_t servoPos, uint16_t ping_uS) {
    */
   noInterrupts(); // turn off all interrupts
   // worst case scenario, two encoder interrupt flags and serial RX flag are set right after noInterrupts();
-  encLeftCount_temp = encLeftCount; // long is 4 bytes, so assignment translates to 4 machine instructions.
-  encRightCount_temp = encRightCount; // also 4 machine instructions
+  encMsg.leftTicks = encLeftCount; // long is 4 bytes, so assignment translates to 4 machine instructions.
+  encMsg.rightTicks = encRightCount; // also 4 machine instructions
   interrupts(); // turn all interrupts back on, run next statement, then handle any that were flagged in-between guards
   // The next statement is guaranteed to run before flagged interrupts are handled (I actually don't want this feature, but wtv, we should have time to do it)
+  t = 0; // do a quick useless statement so that flagged interrupts are handled quickly
 
-  /*
-   * The encoders are physically rotated 180 degrees from each other. So when the rover
-   * is going forward, the two motors are rotating in opposite directions. Since we
-   * still want to report both angular positions as positive when the wheels are
-   * moving forward, we flip the sign of the right encoder's value before reporting it. 
-   * We could simply subtract the lookup table's value in encoderRight_isr() instead, 
-   * but since subtraction is actually compiled to machine instructions which invert 
-   * the sign and then add, this would slow down the ISR marginally. To avoid that, 
-   * we accomplish the same goal here.
-   */
-  encRightCount_temp = -1 * encRightCount_temp
-  /* 
-   *  Send sensor data to processing unit over serial port, with descriptive start bytes.
-   *  None of the start bytes should be in the range '0' - '9' or 'a' - 'f', since those 
-   *  chars are used by the hexadecimal ASCII encoding.
-   *  L == Left motor's quadrature encoder's position value
-   *  R == Right motor's quadrature encoder's position value
-   *  S == Angular degree of servo
-   *  P == Ultrasonic ping time (in micro seconds) measured at the given servo angle
-   */
-  Serial.print('L'); // sends 1 byte over serial
-  // Break up the left encoder position long into 4 bytes, and send each byte as HEX ASCII
-  bytes[0] = (encLeftCount_temp >> 24) & 0xFF;
-  bytes[1] = (encLeftCount_temp >> 16) & 0xFF;
-  bytes[2] = (encLeftCount_temp >> 8)  & 0xFF;
-  bytes[3] =  encLeftCount_temp        & 0xFF;
-  printToHex(bytes, 4); // sends 8 bytes over serial
+  // negate left count to make the two ticks both positive as the rover moves forward
+  encMsg.leftTicks = -1 * encMsg.leftTicks;
+
+  // Fill in ultrasonic sensor messages
+  pingUSMsg.data = ping_time_uS;
+  // Transmit angle in degrees from x-axis of base_link, with CCW positive.
+  // Follows REP-103: http://www.ros.org/reps/rep-0103.html#rotation-representation
+  pingAngleDegMsg.data = (int8_t) (servoPos - SERVO_CENTER); 
   
-  Serial.print('R'); // sends 1 byte over serial
-  // Break up the right encoder position long into 4 bytes, and send each byte as HEX ASCII
-  bytes[0] = (encRightCount_temp >> 24) & 0xFF;
-  bytes[1] = (encRightCount_temp >> 16) & 0xFF;
-  bytes[2] = (encRightCount_temp >> 8)  & 0xFF;
-  bytes[3] =  encRightCount_temp        & 0xFF;
-  printToHex(bytes, 4); // sends 8 bytes over serial
-   
-  Serial.print('S'); // sends 1 byte over serial
-  // Send the servo position byte as HEX ASCII
-  printToHex(&servoPos, 1); // sends 2 bytes over serial
-  
-  Serial.print('P'); // sends 1 byte over serial
-  bytes[0] = (ping_uS >> 8) & 0xFF;
-  bytes[1] =  ping_uS       & 0xFF;
-  printToHex(bytes, 2); // sends 4 bytes over serial
-}
-
-/**
- * Iterates over a byte[] and prints out each individual byte's
- * hexadecimal ASCII encoding. Guaranteed to print 2 ASCII characters
- * per byte. Used instead of sprintf() for performance gain.
- * @param *data The byte array to iterate through, from MSB to LSB
- * @param len The length of the byte array
- * Credit: https://forum.arduino.cc/index.php?topic=38107.0
- */
-void printToHex(uint8_t *data, uint8_t len) { // prints arbitrary byte[] data in hex
-  char tmp[len*2 + 1]; // 2 nibbles per byte, plus one for string terminator
-  byte nibble;
-  uint8_t j=0;
-  for (uint8_t i = 0; i < len; i++) {
-      
-    // To convert a single digit number into its ascii, add 48 ('0')
-    // To convert numbers 10-16 into characters 'a' - 'f', add 87 ('a' - 10)
-    // Note that the difference between these conversion constants is 39
-    nibble = (data[i] >> 4) | 48; // Grab the most significant nibble, add 48 ('0') to it
-    if (nibble > 57) tmp[j] = nibble + (byte)39; // 57 == '9', add 39 ('a' - 10 - '0')
-    else tmp[j] = nibble ;
-    j++;
-
-    // do exactly the same for the least significant nibble
-    nibble = (data[i] & 0x0F) | 48;
-    if (nibble > 57) tmp[j] = nibble + (byte)39; 
-    else tmp[j] = nibble;
-    j++;
-  }
-  tmp[len*2] = 0; // String terminator for printing
-  Serial.print(tmp); // print out generated ASCII
+  // Publish sensor messages, calling spinOnce() after each write out to
+  // handle ROS communication callbacks
+  encPub.publish(&encMsg);
+  //nh.spinOnce();
+  pingTimePub.publish(&pingUSMsg);
+  //nh.spinOnce();
+  pingAngleDegPub.publish(&pingAngleDegMsg);
+  //nh.spinOnce();
 }
 
 

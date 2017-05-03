@@ -1,0 +1,59 @@
+<!--
+     This launch file handles low level control of the rover. It makes an
+	approximation of the rover as a two-wheeled, differential-drive 
+	robot. The Arduino on-board the rover should be powered on and
+	running before these nodes are launched.
+
+     It publishes Range messages and broadcasts transforms for
+	the ultrasonic sensor's readings, and publishes Odometry messages
+	for estimates of the rover's position, orientation, and velocity
+	based off of wheel encoder readings. It also translates incoming
+	Twist messages commanding the rover to certain velocities,
+	into low-level R/C pulses that the Sabertooth motor driver can
+	understand, and uses a PID controller to ensure the rover reaches
+	the desired velocity.
+-->
+<launch>
+
+	<!-- See this yaml file for parameters affecting these nodes. -->
+	<rosparam command="load" file="$(find auto_rover)/params/controller.yaml" />
+
+	
+	<!-- Read sensor messages from arduino over serial, and publish them. -->
+	<node pkg="rosserial_python" type="serial_node.py" name="arduino_bridge">
+		<!-- Appending auto_rover package path to PYTHONPATH environment variable
+			allows rosserial_python to find the custom message definition of EncCount -->
+		<env name="PYTHONPATH" value="$(env PYTHONPATH):/home/noah/catkin_ws/src/auto_rover/" />
+	</node>
+
+	<!-- Convert ping time and angle messages from arduino node into
+		Range messages and a base_link -> ultrasound transform. -->
+	<node pkg="auto_rover" type="range_converter.py" name="range_converter" />
+
+	<!-- Use differential drive kinematics equations to convert encoder ticks
+		coming from the arduino into pose and twist (velocity), and publish
+		an odometry message. -->
+	<node pkg="differential_drive" type="diff_tf.py" name="raw_odometry_publisher" >
+		<remap from="odom" to="odometry/wheel" />
+	</node>
+	
+	<!-- Translate incoming twist messages from the twist topic, such as those output
+		by the ROS navigation stack, into target wheel velocities for the rover. -->
+	<node pkg="differential_drive" type="twist_to_motors.py" name="twist_to_motors" output="screen" />
+
+	<!-- Use two PID controllers to set the rover's wheel velocities to their target. Each controller
+		reads the "/odom/encTicks" topic for encoder ticks, just like diff_tf, and uses them to keep
+		track of an estimate of each wheel's velocity. It publishes servo
+		power messages which the arduino is subscribed to. -->
+	<node pkg="differential_drive" type="pid_velocity.py" name="lpid_velocity" output="screen">
+		<remap from="motor_cmd" to="/cmd/left"/>
+		<remap from="wheel_vtarget" to="lwheel_vtarget"/>
+		<remap from="wheel_vel" to="lwheel_vel"/>
+	</node>
+	<node pkg="differential_drive" type="pid_velocity.py" name="rpid_velocity">
+		<remap from="motor_cmd" to="/cmd/right"/>
+		<remap from="wheel_vtarget" to="rwheel_vtarget"/>
+		<remap from="wheel_vel" to="rwheel_vel"/>
+	</node>
+
+</launch>

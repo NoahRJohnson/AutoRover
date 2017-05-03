@@ -197,8 +197,45 @@ void processSerialInput() {
  * This function is executed continuously while the Arduino runs.
  */
 void loop() {
-  delay(2000);
-  sonicServo.write(-5);
+  uint8_t servoPos;
+  uint16_t ping_time_uS;
+
+  servoPos = SERVO_RIGHT; // initial servo position
+  
+  while (servoPos < SERVO_LEFT) {
+    sonicServo.write(servoPos);
+
+    if (Serial.available() > 3) {
+      processSerialInput();
+    } else {
+      delay(SERVO_STEP_DELAY); // wait for servo to reach pos, and make sure we don't take too many pings per second
+    }
+    
+    ping_time_uS = sonar.ping(); // Send ping, get distance in uS (0 == NO_ECHO => outside set distance range)
+
+    pushSensorUpdate(servoPos, ping_time_uS);
+
+    // increment by step size, but don't overshoot
+    servoPos = min(servoPos + SERVO_STEP_SZ, SERVO_LEFT);
+  }
+
+  while (servoPos > SERVO_RIGHT) {
+    sonicServo.write(servoPos);
+    
+    if (Serial.available() > 3) {
+      processSerialInput();
+    } else {
+      delay(SERVO_STEP_DELAY); // wait for servo to reach pos, and make sure we don't take too many pings per second
+    }
+    
+    ping_time_uS = sonar.ping(); // Send ping, get distance in uS (0 == NO_ECHO => outside set distance range)
+
+    pushSensorUpdate(servoPos, ping_time_uS);
+
+    // decrement by step size, but don't undershoot
+    servoPos = max(servoPos - SERVO_STEP_SZ, SERVO_RIGHT);
+  }
+  
 }
 
 /**

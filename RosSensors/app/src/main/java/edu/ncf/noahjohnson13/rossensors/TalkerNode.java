@@ -127,15 +127,21 @@ public class TalkerNode extends AbstractNodeMain implements
     /**
      *
      */
-    private final float[] mAccelerometerReading = new float[3];
-    /**
-     *
-     */
-    private final float[] mMagnetometerReading = new float[3];
+    private final float[] mAccelerometerReading = new float[4];
     /**
      *
      */
     private final float[] mGyroscopeReading = new float[3];
+    /**
+     *
+     */
+    private final float[] mGravityValues = new float[3];
+
+    /**
+     *
+     */
+    private final float[] mMagnetometerReading = new float[3];
+
 
 
 
@@ -154,6 +160,10 @@ public class TalkerNode extends AbstractNodeMain implements
     /**
      *
      */
+    private boolean gravityUsed;
+    /**
+     *
+     */
     private boolean orientationQuaternionUsed;
 
 
@@ -169,6 +179,10 @@ public class TalkerNode extends AbstractNodeMain implements
      *
      */
     private boolean gyroscopeUpdated = false;
+    /**
+     *
+     */
+    private boolean gravityUpdated = false;
     /**
      *
      */
@@ -260,6 +274,7 @@ public class TalkerNode extends AbstractNodeMain implements
         Sensor accelerometer = mSensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER);
         Sensor magnetometer = mSensorManager.getDefaultSensor(Sensor.TYPE_MAGNETIC_FIELD);
         Sensor gyroscope = mSensorManager.getDefaultSensor(Sensor.TYPE_GYROSCOPE);
+        Sensor gravitySensor = mSensorManager.getDefaultSensor(Sensor.TYPE_GRAVITY);
         Sensor orientation = mSensorManager.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR);
 
         if (accelerometer == null) {
@@ -268,6 +283,7 @@ public class TalkerNode extends AbstractNodeMain implements
             ROS_LOG.error("Accelerometer sensor unavailable.");
         } else {
             accelerometerUsed = true;
+            accelerometerUpdated = false;
             mSensorManager.registerListener(this, accelerometer,
                     IMU_SENSORS_SAMPLING_PERIOD, IMU_SENSORS_MAX_REPORT_LATENCY);
         }
@@ -277,6 +293,7 @@ public class TalkerNode extends AbstractNodeMain implements
             ROS_LOG.error("Magnetometer sensor unavailable.");
         } else {
             magnetometerUsed = true;
+            magnetometerUpdated  = false;
             mSensorManager.registerListener(this, magnetometer,
                     IMU_SENSORS_SAMPLING_PERIOD, IMU_SENSORS_MAX_REPORT_LATENCY);
         }
@@ -286,7 +303,18 @@ public class TalkerNode extends AbstractNodeMain implements
             ROS_LOG.error("Gyroscope sensor unavailable.");
         } else {
             gyroscopeUsed = true;
+            gyroscopeUpdated = false;
             mSensorManager.registerListener(this, gyroscope,
+                    IMU_SENSORS_SAMPLING_PERIOD, IMU_SENSORS_MAX_REPORT_LATENCY);
+        }
+        if (gravitySensor == null) {
+            gravityUsed = false;
+            gravityUpdated = true; // leave true so we don't check it
+            ROS_LOG.error("Gyroscope sensor unavailable.");
+        } else {
+            gravityUsed = true;
+            gravityUpdated = false;
+            mSensorManager.registerListener(this, gravitySensor,
                     IMU_SENSORS_SAMPLING_PERIOD, IMU_SENSORS_MAX_REPORT_LATENCY);
         }
         if (orientation == null) {
@@ -295,6 +323,7 @@ public class TalkerNode extends AbstractNodeMain implements
             ROS_LOG.error("Rotation vector sensor unavailable.");
         } else {
             orientationQuaternionUsed = true;
+            orientationQuaternionUpdated = false;
             mSensorManager.registerListener(this, orientation,
                     IMU_SENSORS_SAMPLING_PERIOD, IMU_SENSORS_MAX_REPORT_LATENCY);
         }
@@ -423,24 +452,30 @@ public class TalkerNode extends AbstractNodeMain implements
         }
         if (event.sensor.getType() == Sensor.TYPE_ACCELEROMETER) {
             System.arraycopy(event.values, 0, mAccelerometerReading,
-                    0, mAccelerometerReading.length);
+                    0, event.values.length);
             accelerometerUpdated = true;
         } else if (event.sensor.getType() == Sensor.TYPE_MAGNETIC_FIELD) {
             System.arraycopy(event.values, 0, mMagnetometerReading,
-                    0, mMagnetometerReading.length);
+                    0, event.values.length);
             magnetometerUpdated = true;
+        } else if (event.sensor.getType() == Sensor.TYPE_GRAVITY) {
+            System.arraycopy(event.values, 0, mGravityValues,
+                    0, event.values.length);
+            gravityUpdated = true;
         } else if (event.sensor.getType() == Sensor.TYPE_GYROSCOPE) {
             System.arraycopy(event.values, 0, mGyroscopeReading,
-                    0, mGyroscopeReading.length);
+                    0, event.values.length);
             gyroscopeUpdated = true;
         } else if (event.sensor.getType() == Sensor.TYPE_ROTATION_VECTOR) {
-            // Translate rotation vector to a normalized quaternion, stored as [w,x,y,z]
-            mSensorManager.getQuaternionFromVector(mOrientationQuaternion, event.values);
+            // Get a normalized quaternion representing orientation in ENU frame
+            System.arraycopy(event.values, 0, mOrientationQuaternion,
+                    0, mOrientationQuaternion.length); // [x,y,z,w]
             orientationQuaternionUpdated = true;
         }
 
         if (accelerometerUpdated && magnetometerUpdated &&
-                gyroscopeUpdated && orientationQuaternionUpdated) {
+                gyroscopeUpdated && gravityUpdated &&
+                orientationQuaternionUpdated) {
             /*
              * Orientation (calculated using accelerometer and magnetometer)
              * linear acceleration (accelerometer) and
@@ -455,12 +490,13 @@ public class TalkerNode extends AbstractNodeMain implements
             fill_IMU_msg(imu_msg);
             imu_publisher.publish(imu_msg);
 
-            // If a sensor is used, set its updated flag to false.
+            // If a sensor is used, reset its updated flag to false.
             // If a sensor is not being used, then leave the updated
             // flag as true so that we don't wait for it to update.
             accelerometerUpdated = !accelerometerUsed;
             magnetometerUpdated = !magnetometerUsed;
             gyroscopeUpdated = !gyroscopeUsed;
+            gravityUpdated = !gravityUsed;
             orientationQuaternionUpdated = !orientationQuaternionUsed;
         }
     }
@@ -476,34 +512,67 @@ public class TalkerNode extends AbstractNodeMain implements
      */
     private void fill_IMU_msg(sensor_msgs.Imu msg) {
 
-/*        System.out.println(String.format(
-                "Seq, timestamp, frameid: %d, %s, %s",
-                msg.getHeader().getSeq(),
-                msg.getHeader().getStamp().toString(),
-                msg.getHeader().getFrameId()));
-*/
         /* Fill in the header. The sequence is automatically
-         generated as an increasing int.
-         TODO: check that I'm using timestamp correctly, check ros wiki on tf */
-        //msg.getHeader().setSeq(imu_seq);
+         generated as an increasing int. */
         msg.getHeader().setStamp(connectedNode.getCurrentTime());
         msg.getHeader().setFrameId(FRAME_ID);
 
-        msg.getOrientation().setW(mOrientationQuaternion[0]);
-        msg.getOrientation().setX(mOrientationQuaternion[1]);
-        msg.getOrientation().setY(mOrientationQuaternion[2]);
-        msg.getOrientation().setZ(mOrientationQuaternion[3]);
+        // Already in ENU frame
+        msg.getOrientation().setX(mOrientationQuaternion[0]);
+        msg.getOrientation().setY(mOrientationQuaternion[1]);
+        msg.getOrientation().setZ(mOrientationQuaternion[2]);
+        msg.getOrientation().setW(mOrientationQuaternion[3]);
+
+        // Modify accelerometer data to follow REP-103, and be in ENU frame.
+        // Accelerometer values are given in phone's local frame.
+        // They include gravity.
+        // Change the device relative acceleration values to earth relative values
+        // X axis -> East
+        // Y axis -> North Pole
+        // Z axis -> Sky
+        float[] enuAcc = new float[16];
+        if (accelerometerUsed && gravityUsed && magnetometerUsed) {
+            float[] R = new float[16], I = new float[16];
+
+            SensorManager.getRotationMatrix(R, I, mGravityValues, mMagnetometerReading);
+
+            float[] inv = new float[16];
+
+            mAccelerometerReading[3] = 0;
+
+            android.opengl.Matrix.invertM(inv, 0, R, 0);
+            android.opengl.Matrix.multiplyMV(enuAcc, 0, inv, 0, mAccelerometerReading, 0);
+        }
+        else { // will set cov[0] to -1, and tell ekf node to ignore this value
+            enuAcc[0] = 0;
+            enuAcc[1] = 0;
+            enuAcc[2] = 0;
+        }
+
+        // Set linear acceleration in ENU frame
+        msg.getLinearAcceleration().setX(enuAcc[0]);
+        msg.getLinearAcceleration().setY(enuAcc[1]);
+        msg.getLinearAcceleration().setZ(enuAcc[2]);
+
+        // Gyroscope values are given in phone's local frame, increasing
+        // CCW (good). The phone is laying face up on top of the rover, so
+        // its frame's z axis is the same as in the ENU frame, and so yaw'
+        // from the gyroscope is the same. roll' and pitch' are ignored by
+        // the state estimation node since rover is 2D, therefore we don't
+        // bother converting gyroscope readings from phone frame to ENU frame.
+
+        if (!gyroscopeUsed) { // will set cov[0] to -1, and tell ekf node to ignore this value
+            mGyroscopeReading[0] = 0;
+            mGyroscopeReading[1] = 0;
+            mGyroscopeReading[2] = 0;
+        }
 
         msg.getAngularVelocity().setX(mGyroscopeReading[0]);
         msg.getAngularVelocity().setY(mGyroscopeReading[1]);
         msg.getAngularVelocity().setZ(mGyroscopeReading[2]);
 
-        msg.getLinearAcceleration().setX(mAccelerometerReading[0]);
-        msg.getLinearAcceleration().setY(mAccelerometerReading[1]);
-        msg.getLinearAcceleration().setZ(mAccelerometerReading[2]);
 
-
-        // TODO: remove this, get actual covariance measurements
+        // initialize covariance matrices to all zeros
         for (int i=0; i < 9; i++) {
             orientationQuaternionCovariance[i] = 0;
             gyroscopeCovariance[i] = 0;
@@ -512,28 +581,27 @@ public class TalkerNode extends AbstractNodeMain implements
 
         // Per message specs, if sensor isn't used, put a -1 in
         // the first element of the flattened covariance matrix
-        if (orientationQuaternionUsed) {
+        if (orientationQuaternionUsed) { // in ENU frame
             orientationQuaternionCovariance[0] = ORIENTATION_VARIANCE * ORIENTATION_VARIANCE;
             orientationQuaternionCovariance[4] = ORIENTATION_VARIANCE * ORIENTATION_VARIANCE;
-            orientationQuaternionCovariance[9] = ORIENTATION_VARIANCE * ORIENTATION_VARIANCE;
+            orientationQuaternionCovariance[8] = ORIENTATION_VARIANCE * ORIENTATION_VARIANCE;
         }
         else
             orientationQuaternionCovariance[0] = -1;
-        if (gyroscopeUsed) {
+        if (gyroscopeUsed) { // in phone frame, z axis is all we care about and it's the same as ENU frame.
             gyroscopeCovariance[0] = GYROSCOPE_VARIANCE * GYROSCOPE_VARIANCE;
             gyroscopeCovariance[4] = GYROSCOPE_VARIANCE * GYROSCOPE_VARIANCE;
-            gyroscopeCovariance[9] = GYROSCOPE_VARIANCE * GYROSCOPE_VARIANCE;
+            gyroscopeCovariance[8] = GYROSCOPE_VARIANCE * GYROSCOPE_VARIANCE;
         }
         else
             gyroscopeCovariance[0] = -1;
-        if (accelerometerUsed) {
+        if (accelerometerUsed && gravityUsed && magnetometerUsed) { // phone frame has z the same, so x,y->E,N is just simple 1-1 mapping, and we can use the same variances
             accelerometerCovariance[0] = ACCELEROMETER_VARIANCE * ACCELEROMETER_VARIANCE;
             accelerometerCovariance[4] = ACCELEROMETER_VARIANCE * ACCELEROMETER_VARIANCE;
-            accelerometerCovariance[9] = ACCELEROMETER_VARIANCE * ACCELEROMETER_VARIANCE;
+            accelerometerCovariance[8] = ACCELEROMETER_VARIANCE * ACCELEROMETER_VARIANCE;
         }
         else
             accelerometerCovariance[0] = -1;
-
 
         msg.setOrientationCovariance(orientationQuaternionCovariance);
         msg.setAngularVelocityCovariance(gyroscopeCovariance);
@@ -545,7 +613,6 @@ public class TalkerNode extends AbstractNodeMain implements
 
         assert(fix != null);
 
-        //TODO: check that I'm using timestamp correctly, check ros wiki on tf */
         msg.getHeader().setStamp(connectedNode.getCurrentTime());
         msg.getHeader().setFrameId(FRAME_ID);
 
@@ -567,6 +634,7 @@ public class TalkerNode extends AbstractNodeMain implements
         else
             msg.setAltitude(0); // rover will be on ground, so default to 0
 
+	// initialize covariance matrix to all zeros
         double[] fix_covariance = new double[9];
         for (int i = 0; i < fix_covariance.length; i++)
             fix_covariance[i] = 0;
@@ -584,7 +652,7 @@ public class TalkerNode extends AbstractNodeMain implements
              */
             fix_covariance[0] = horiz_accuracy * horiz_accuracy;
             fix_covariance[4] = horiz_accuracy * horiz_accuracy;
-            //fix_covariance[9] = vert_accuracy * vert_accuracy;
+            //fix_covariance[8] = vert_accuracy * vert_accuracy;
             // TODO: Find a way to get vertical accuracy and report it, before ekf_localization node turns on 3D
         }
         else { // no accuracy estimation, so we can't create covariance matrix. So leave it as all 0s and flag it to be ignored.
