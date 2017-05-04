@@ -8,7 +8,7 @@ The Arduino acts as a low-level robotic controller, publishing wheel encoder and
 
 See my [Thesis](https://github.com/NoahRJohnson/Thesis/blob/master/main.pdf) for a detailed look into the project. 
 
-To use the auto_rover ROS package, simply copy auto_rover/ into the src/ folder of your catkin workspace, and then run catkin_make and catkin_make install from your workspace folder.
+To use the auto_rover ROS package, simply copy auto_rover into the src folder of your catkin workspace, and then run 'catkin_make' and 'catkin_make install' from your workspace folder.
 
 To use the Arduino sketch, open rover_sketch.ino in the Arduino IDE, connect your Arduino board with a USB printer cable, and upload the program. To build the RosSensors app onto your personal mobile phone, use Android Studio. Your phone will need to have a magnetometer, gyroscope, accelerometer, and GPS receiver.
 
