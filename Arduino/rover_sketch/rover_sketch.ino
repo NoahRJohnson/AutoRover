@@ -16,7 +16,7 @@
  * per second. Arduino serial defaults to 8N1 which uses 10 symbols
  * per byte of data (1 start symbol, 8 data bits, 1 stop symbol).
  */
-#define BAUD_RATE 57600 // 960 bytes per second, roughly 1 ms between bytes
+#define BAUD_RATE 28800 // 2880 bytes per second, roughly 34 micro seconds between bits
 
 /** 
  * Arduino digital pin connection definitions 
@@ -181,7 +181,8 @@ void setup() {
    */
   rightMotors.attach(rightMotorsPin); // Attach motor driver S1 to its digital pin
   leftMotors.attach(leftMotorsPin); // Attach motor driver S2 to its digital pin
-  sonicServo.attach(sonicServoPin); // Attach standard servo to its digital pin
+  // Set min and max HIGH pulse times for the standard servo in microseconds.
+  sonicServo.attach(sonicServoPin, 750, 2250); // Attach standard servo to its digital pin, datasheet specifies 0.75 - 2.25 ms high pulse
   sonicServo.write(SERVO_RIGHT); // Set its initial position all the way to the right
 
   /*
@@ -250,9 +251,10 @@ void loop() {
 
     //nh.spinOnce(); // handle publishing callbacks immediately to flush serial buffers
 
-    // increment by step size, but don't overshoot
-    servoPos = min(servoPos + SERVO_STEP_SZ, SERVO_LEFT);
+    servoPos += SERVO_STEP_SZ;
   }
+
+  servoPos = SERVO_LEFT; // in case we overshot in the previous while loop
   
   while (servoPos > SERVO_RIGHT) {
     sonicServo.write(servoPos);
@@ -271,7 +273,7 @@ void loop() {
     //nh.spinOnce(); // handle publishing callbacks immediately to flush serial buffers
 
     // decrement by step size, but don't undershoot
-    servoPos = max(servoPos - SERVO_STEP_SZ, SERVO_RIGHT);
+    servoPos -= SERVO_STEP_SZ;
   }
   
 }
@@ -296,14 +298,20 @@ void publishSensorMessages(uint8_t servoPos, uint16_t ping_time_uS) {
   /*
    * Reading from multi-byte variables which are accessed within
    * and without an ISR risks data corruption, so interrupt guards
-   * must be used around a read to make it atomic.
+   * must be used around a read to make it atomic. Important to not
+   * disable all interrupts, as serial RX interrupts occur at a high
+   * rate when we set the baud rate high.
    */
-  noInterrupts(); // turn off all interrupts
-  // worst case scenario, two encoder interrupt flags and serial RX flag are set right after noInterrupts();
+  detachInterrupt(digitalPinToInterrupt(encLeftAPin)); // turn off handling of left encoder pulse edges
   encMsg.leftTicks = encLeftCount; // long is 4 bytes, so assignment translates to 4 machine instructions.
-  encMsg.rightTicks = encRightCount; // also 4 machine instructions
-  interrupts(); // turn all interrupts back on, run next statement, then handle any that were flagged in-between guards
+  attachInterrupt(digitalPinToInterrupt(encLeftAPin), encoderLeft_isr, CHANGE); // reattach interrupts, will execute any flagged events
   // The next statement is guaranteed to run before flagged interrupts are handled (I actually don't want this feature, but wtv, we should have time to do it)
+  t = 0; // do a quick useless statement so that a flagged interrupt is handled quickly
+  
+  detachInterrupt(digitalPinToInterrupt(encRightAPin)); // turn off handling of right encoder pulse edges
+  // worst case scenario, encoder interrupt flag set right after detachInterrupt()
+  encMsg.rightTicks = encRightCount; // 4 machine instructions
+  attachInterrupt(digitalPinToInterrupt(encRightAPin), encoderRight_isr, CHANGE); // reattach interrupts, will execute any flagged events
   t = 0; // do a quick useless statement so that flagged interrupts are handled quickly
 
   // negate left count to make the two ticks both positive as the rover moves forward
@@ -315,14 +323,10 @@ void publishSensorMessages(uint8_t servoPos, uint16_t ping_time_uS) {
   // Follows REP-103: http://www.ros.org/reps/rep-0103.html#rotation-representation
   pingAngleDegMsg.data = (int8_t) (servoPos - SERVO_CENTER); 
   
-  // Publish sensor messages, calling spinOnce() after each write out to
-  // handle ROS communication callbacks
+  // Publish sensor messages
   encPub.publish(&encMsg);
-  //nh.spinOnce();
   pingTimePub.publish(&pingUSMsg);
-  //nh.spinOnce();
   pingAngleDegPub.publish(&pingAngleDegMsg);
-  //nh.spinOnce();
 }
 
 
