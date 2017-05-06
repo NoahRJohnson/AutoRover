@@ -8,7 +8,7 @@ The Arduino acts as a low-level robotic controller, publishing wheel encoder and
 
 See my [Thesis](https://github.com/NoahRJohnson/Thesis/blob/master/main.pdf) for a detailed look into the project. 
 
-To use the auto_rover ROS package, simply copy auto_rover into the src folder of your catkin workspace, and then run 'catkin_make' and 'catkin_make install' from your workspace folder.
+To use the auto_rover ROS package, simply copy auto_rover into the src folder of your catkin workspace, and then run 'catkin_make' and 'catkin_make install' from your workspace folder. You should then be able to roslaunch the different launch files. You will need to have [this](https://github.com/NoahRJohnson/differential-drive) differential_drive package installed, as well as the robot_localization package.
 
 To use the Arduino sketch, download the modified rosserial package [here](https://github.com/NoahRJohnson/rosserial). Then use 'rosrun rosserial_arduino make_libraries.py /path/to/sketchbook/libraries/' to construct the ros_lib Arduino library. This modified version of rosserial supports the use of PROG_MEM string constants, which save dynamic memory on the Arduino. Also install the [NewPing]() library into your sketchbook/libraries folder. Now you should be good to go, so open rover_sketch.ino in the Arduino IDE, connect your Arduino board with a USB printer cable, and upload the program. 
 
