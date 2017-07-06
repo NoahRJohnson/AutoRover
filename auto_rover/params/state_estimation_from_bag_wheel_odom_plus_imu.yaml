@@ -1,0 +1,115 @@
+raw_odometry_publisher:
+  # The rate at which the odometry messages are published (Hz). 
+  rate: 10 
+  # The number of encoder ticks per meter.
+  ticks_meter: 16281
+  # The name of the base frame of the robot.
+  base_frame_id: base_link
+
+  # The name of the odometry reference frame. 
+  odom_frame_id: odom
+
+  # Distance between the wheels measured to be 11.125 inches (0.282575 meters).
+  base_width: 0.282575
+
+  # The min and max value the encoder will output. Used to calculate odometry when the values wrap around.
+  encoder_min: -2147483648
+  encoder_max: 2147483647
+
+ekf_node:
+  frequency: 30 # The real-valued frequency, in Hz, at which the filter produces a state estimate.
+  sensor_timeout: 0.1 # The real-valued period, in seconds, after which we consider any sensor to have timed out.
+  two_d_mode: true # fuse 0 values for all 3D variables (Z, roll, pitch, and their respective velocities and accelerations).
+  transform_time_offset: 0.0 # The value to add to the timestamp of map->odom or odom->base_link transform being generated.
+  transform_timeout: 0.0 # specifies how long we would like to wait if a transformation is not available yet. The value 0 means we just get the latest available (see tf2 implementation) transform so we are not blocking the filter.
+  print_diagnostics: true # ublish diagnostic messages to the /diagnostics topic
+  debug: false # run in debug mode. generates a massive amount of data
+
+  # See REP-105
+  map_frame: map # a world-fixed coordinate frame, subject to discrete jumps
+  odom_frame: odom # The robot’s position in the odom frame will drift over time, but is accurate in the short term and should be continuous
+  base_link_frame: base_link # the coordinate frame affixed to the robot
+  world_frame: odom # fusing continuous data only
+
+  odom0: odometry/wheel # topic
+  # Which variables are fused into state estimate
+  # Only fusing twist component of odom message,
+  # as position estimate is too noisy and drifts quickly
+  odom0_config: [false, false, false, # X, Y, Z
+                 false, false, false, # roll, pitch, yaw
+                 true,  true,  true,  # X',Y',Z'
+                 false, false, true,  # roll',pitch',yaw'
+                 false, false, false] # X'',Y'',Z''
+  odom0_queue_size: 10 # callback queue size
+  odom0_nodelay: true # disable Nagle's algorithm
+  odom0_differential: false # integrate pose variables differentially
+  odom0_relative: false # fuse relative to first measurement
+
+  imu0: imu/data # topic
+  # Which variables are fused into state estimate
+  # Fusing linear acceleration (from accelerometer),
+  # and angular velocity (from gyroscope). roll and
+  # pitch, and roll' and pitch' are zero'd out thanks
+  # to two_d_mode == true
+  imu0_config: [false, false, false, # X, Y, Z
+                true,  true,  false, # roll, pitch, yaw
+                false, false, false, # X',Y',Z'
+                true,  true,  true,  # roll',pitch',yaw'
+                true,  true,  true]  # X'',Y'',Z''
+  imu0_nodelay: false # disable Nagle's algorithm
+  imu0_differential: false # integrate differentially
+  imu0_relative: false # fuse relative to first measurement
+  imu0_queue_size: 10 # callback queue size
+  imu0_remove_gravitational_acceleration: true # remove acceleration due to gravity before fusing
+
+  use_control: false # set acceleration based on Twist message from cmd_vel topic
+
+  # Q, models the uncertainty in the prediction stage of the filter
+  process_noise_covariance: [1e-3, 0,    0,    0,    0,    0,    0,     0,     0,    0,    0,    0,    0,    0,    0,
+                             0,    1e-3, 0,    0,    0,    0,    0,     0,     0,    0,    0,    0,    0,    0,    0,
+                             0,    0,    1e-3, 0,    0,    0,    0,     0,     0,    0,    0,    0,    0,    0,    0,
+                             0,    0,    0,    0.3,  0,    0,    0,     0,     0,    0,    0,    0,    0,    0,    0,
+                             0,    0,    0,    0,    0.3,  0,    0,     0,     0,    0,    0,    0,    0,    0,    0,
+                             0,    0,    0,    0,    0,    0.01, 0,     0,     0,    0,    0,    0,    0,    0,    0,
+                             0,    0,    0,    0,    0,    0,    0.5,   0,     0,    0,    0,    0,    0,    0,    0,
+                             0,    0,    0,    0,    0,    0,    0,     0.5,   0,    0,    0,    0,    0,    0,    0,
+                             0,    0,    0,    0,    0,    0,    0,     0,     0.1,  0,    0,    0,    0,    0,    0,
+                             0,    0,    0,    0,    0,    0,    0,     0,     0,    0.3,  0,    0,    0,    0,    0,
+                             0,    0,    0,    0,    0,    0,    0,     0,     0,    0,    0.3,  0,    0,    0,    0,
+                             0,    0,    0,    0,    0,    0,    0,     0,     0,    0,    0,    0.3,  0,    0,    0,
+                             0,    0,    0,    0,    0,    0,    0,     0,     0,    0,    0,    0,    0.3,  0,    0,
+                             0,    0,    0,    0,    0,    0,    0,     0,     0,    0,    0,    0,    0,    0.3,  0,
+                             0,    0,    0,    0,    0,    0,    0,     0,     0,    0,    0,    0,    0,    0,    0.3]
+
+  # P, how much to trust the initial state estimate (low value --> high trust)
+  initial_estimate_covariance: [1e-9, 0,    0,    0,    0,    0,    0,    0,    0,    0,     0,     0,     0,    0,    0,
+                                0,    1e-9, 0,    0,    0,    0,    0,    0,    0,    0,     0,     0,     0,    0,    0,
+                                0,    0,    1e-9, 0,    0,    0,    0,    0,    0,    0,     0,     0,     0,    0,    0,
+                                0,    0,    0,    1.0,  0,    0,    0,    0,    0,    0,     0,     0,     0,    0,    0,
+                                0,    0,    0,    0,    1.0,  0,    0,    0,    0,    0,     0,     0,     0,    0,    0,
+                                0,    0,    0,    0,    0,    1e-9, 0,    0,    0,    0,     0,     0,     0,    0,    0,
+                                0,    0,    0,    0,    0,    0,    1.0,  0,    0,    0,     0,     0,     0,    0,    0,
+                                0,    0,    0,    0,    0,    0,    0,    1.0,  0,    0,     0,     0,     0,    0,    0,
+                                0,    0,    0,    0,    0,    0,    0,    0,    1.0,  0,     0,     0,     0,    0,    0,
+                                0,    0,    0,    0,    0,    0,    0,    0,    0,    1.0,   0,     0,     0,    0,    0,
+                                0,    0,    0,    0,    0,    0,    0,    0,    0,    0,     1.0,   0,     0,    0,    0,
+                                0,    0,    0,    0,    0,    0,    0,    0,    0,    0,     0,     1.0,   0,    0,    0,
+                                0,    0,    0,    0,    0,    0,    0,    0,    0,    0,     0,     0,     1.0,  0,    0,
+                                0,    0,    0,    0,    0,    0,    0,    0,    0,    0,     0,     0,     0,    1.0,  0,
+                                0,    0,    0,    0,    0,    0,    0,    0,    0,    0,     0,     0,     0,    0,    1.0]
+
+
+# Subscribed to imu/data, odometry/filtered, and gps/fix topics.
+# Publishes odometry messages to odometry/gps 
+navsat_transform_node:
+  frequency: 30 # The frequency, in Hz, to check for new sensor_msgs/NavSatFix messages, and publish filtered sensor_msgs/NavSatFix when publish_filtered_gps is set to true.
+  delay: 3.0 # The time, in seconds, to wait before calculating the transform from GPS coordinates to your robot’s world frame.
+  # magnetic declination (degrees west of true north) in radians. Using http://www.ngdc.noaa.gov/geomag-web, calculated the declination for Sarasota, FL on May 3, 2017. It changes over time.
+  magnetic_declination_radians: 0.0942478
+  yaw_offset: 3.1415927  # fix IMU yaw (magnetic heading)
+  zero_altitude: true # Produced odometry message has its pose's Z value set to 0
+  broadcast_utm_transform: false # broadcast the transform between the UTM grid and the frame of the input odometry data
+  publish_filtered_gps: true # transform your robot’s world frame (e.g., map) position back to GPS coordinates, and publish a NavSatFix message on the /gps/filtered topic.
+  use_odometry_yaw: false # get heading from the input odometry message, and not from the IMU data
+  wait_for_datum: false # wait to get a datum from the set_datum service
+

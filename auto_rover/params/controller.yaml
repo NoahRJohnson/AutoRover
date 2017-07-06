@@ -11,7 +11,7 @@ ambient_air_temperature_farenheit: 78.9
 # http://wiki.ros.org/differential_drive/tutorials/setup#Optimizing_the_PID_parameters		#
 
 # Proportional gain to the PID controller.							#
-Kp: 30
+Kp: 15
 
 # Integral gain to the PID controller. 								#
 Ki: 0
@@ -33,7 +33,7 @@ ultrasound_frame_id: ultrasound
 # Distance between the wheels measured to be 11.125 inches (0.282575 meters).
 base_width: 0.282575
 
-# The min and max value the encoder should output. Used to calculate odometry when the values wrap around.
+# The min and max value the encoder will output. Used to calculate odometry when the values wrap around.
 encoder_min: -2147483648
 encoder_max: 2147483647
 
@@ -80,7 +80,7 @@ arduino_bridge:
   # same value that the Arduino sketch uses. Since the Arduino uses 10 bits per
   # byte by default, divide this by 10 to get the bytes per second going over the
   # wire.
-  baud: 57600
+  baud: 28800
 
 raw_odometry_publisher:
   # The rate at which the odometry messages are published (Hz). 

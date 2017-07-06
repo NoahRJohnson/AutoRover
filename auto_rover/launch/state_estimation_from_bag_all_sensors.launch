@@ -1,0 +1,51 @@
+<!--
+     This launch file handles state estimation through an Extended Kalman Filter using robot_localization.
+	It runs three nodes:
+	(1) An EKF instance that fuses odometry and IMU data and outputs an odom-frame state estimate
+	(2) A second EKF instance that fuses the same data, but also fuses the transformed GPS data from (3)
+	(3) An instance of navsat_transform_node, which takes in GPS data and produces pose data that has been
+		transformed into your robot's world frame (here, map). The node produces a map-frame state estimate.
+
+	The first EKF instance produces the odom->base_link transform. The second EKF produces the map->odom transform,
+	but requires the odom->base_link transform from the first instance in order to do so.
+-->
+
+<launch>
+
+	<!-- See this yaml file for parameters affecting these nodes. -->
+	<rosparam command="load" file="$(find auto_rover)/params/state_estimation_from_bag_all_sensors.yaml" />
+
+	<!-- Simulate the ROS time from when the messages in the bag file were collected. -->
+	<param name="use_sim_time" type="bool" value="true" />
+
+	<!-- Use rosbag to replay sensor messages. -->
+	<node pkg="rosbag" type="play" name="player" output="screen" args="--clock $(find auto_rover)/bagfiles/clean_data.bag -d 5"/>
+
+	<!-- Use differential drive kinematics equations to convert encoder ticks
+		coming into pose and twist (velocity), and publish
+		an odometry message. -->
+	<node pkg="differential_drive" type="diff_odom.py" name="raw_odometry_publisher" >
+		<remap from="odom" to="odometry/wheel" />
+	</node>
+
+	<!-- Broadcast static transform for the mobile phone placed on
+		top of the rover, which during data collection was secured
+		2 inches (0.0508 meters) to the right of the center. -->
+	<node pkg="tf" type="static_transform_publisher" name="bl_phone_tf" args="0 -0.0508 0 0 0 0 1 base_link phone 100" />
+
+	<!-- An EKF instance that fuses wheel odometry and IMU data and outputs an odom->base_link transform -->
+  	<node pkg="robot_localization" type="ekf_localization_node" name="odom_imu_ekf_node" />
+
+	<!-- An instance of navsat_transform_node, which takes in GPS data and produces pose data that has been
+             transformed into your robot's world frame (here, map). The node produces a map-frame state estimate. -->
+	<node pkg="robot_localization" type="navsat_transform_node" name="navsat_transform_node">
+		<remap from="odometry/filtered" to="odometry/filtered_map"/>
+	</node>
+
+	<!-- A second EKF instance that fuses the same data, but also fuses the transformed GPS data from 
+	     navsat_transform_node and produces an odom_frame state estimate -->
+	<node pkg="robot_localization" type="ekf_localization_node" name="gps_fused_ekf_node">
+		<remap from="odometry/filtered" to="odometry/filtered_map"/>
+	</node>
+
+</launch>

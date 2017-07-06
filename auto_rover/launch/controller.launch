@@ -33,7 +33,7 @@
 	<!-- Use differential drive kinematics equations to convert encoder ticks
 		coming from the arduino into pose and twist (velocity), and publish
 		an odometry message. -->
-	<node pkg="differential_drive" type="diff_tf.py" name="raw_odometry_publisher" >
+	<node pkg="differential_drive" type="diff_odom.py" name="raw_odometry_publisher" >
 		<remap from="odom" to="odometry/wheel" />
 	</node>
 	

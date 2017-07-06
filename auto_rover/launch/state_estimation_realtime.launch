@@ -11,8 +11,8 @@
 -->
 <launch>
 
-	<!-- Use rosbag to replay sensor messages. Comment out this node if running in real-time. -->
-	<node pkg="rosbag" type="play" name="player" output="screen" args="--clock /home/noah/rover_test_bagfiles/gps_test.bag -d 5"/>
+	<!-- See this yaml file for parameters affecting these nodes. -->
+	<rosparam command="load" file="$(find auto_rover)/params/state_estimation_realtime.yaml" />
 
 	<!-- Broadcast static transform for the mobile phone placed on
 		top of the rover, which in this experiment is secured
@@ -20,7 +20,7 @@
 	<node pkg="tf" type="static_transform_publisher" name="bl_phone" args="0 -0.0508 0 0 0 0 1 base_link phone 100" />
 
 
-	<!-- See the yaml file for parameter specification. -->
+	<!-- Load the yaml file for parameter specification. -->
 	<rosparam command="load" file="$(find auto_rover)/params/state_estimation.yaml" />
 
 	<!-- An EKF instance that fuses wheel odometry and IMU data and outputs an odom->base_link transform -->

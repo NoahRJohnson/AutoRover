@@ -34,7 +34,7 @@
 #define MAX_DISTANCE 300 // Maximum distance we want to ping for (in centimeters). 3 meters is the limit of the PING))) sensor.
 NewPing sonar(TRIGGER_PIN, ECHO_PIN, MAX_DISTANCE); // Setup NewPing to use the appropriate pins and settings
 
-Servo rightMotors, leftMotors; // Sabertooth R/C differential control. 44 deg full forward, 94 stopped, 144 deg full reverse
+Servo rightMotors, leftMotors; // Sabertooth R/C differential control. 44 deg full reverse, 94 stopped, 144 deg full forward for both of them thanks to hardware cables swapped.
 #define MOTOR_CENTER 94
 Servo sonicServo; // standard Parallax servo attached to ultrasonic sensor. xx left, 66 center, xx 
 
@@ -139,20 +139,22 @@ ros::Publisher pingAngleDegPub(FCAST(ping_angle_topic), &pingAngleDegMsg);
 
 /**
  * Callbacks for cmd_left_motors_topic and cmd_right_motors_topic topics
+ * The motor power connectors were swapped on one of the motors, so that
+ * both sides of the rover go forward when given a higher ON pulse width
  */
 void leftMotors_cb( const std_msgs::Int8& cmd_msg){
   if (cmd_msg.data < -50 || cmd_msg.data > 50)
     nh.logerror(F("Bad cmd"));
   else
-    // positive data implies go forward, but that corresponds to smaller R/C pulse width
-    leftMotors.write(MOTOR_CENTER - cmd_msg.data); // set servo angle, should be from 0-180
+    // positive data implies go forward, which corresponds to a higher R/C pulse width
+    leftMotors.write(MOTOR_CENTER + cmd_msg.data); // set servo angle, should be from 0-180
 }
 void rightMotors_cb( const std_msgs::Int8& cmd_msg){
   if (cmd_msg.data < -50 || cmd_msg.data > 50)
     nh.logerror(F("Bad cmd"));
   else
-    // positive data implies go forward, but that corresponds to smaller R/C pulse width
-    rightMotors.write(MOTOR_CENTER - cmd_msg.data); // set servo angle, should be from 0-180
+    // positive data implies go forward, which corresponds to a higher R/C pulse width
+    rightMotors.write(MOTOR_CENTER + cmd_msg.data); // set servo angle, should be from 0-180
 }
 
 /** 
