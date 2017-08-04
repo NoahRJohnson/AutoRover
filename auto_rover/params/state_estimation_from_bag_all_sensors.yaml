@@ -38,7 +38,7 @@ odom_imu_ekf_node:
   odom0_config: [false, false, false, # X, Y, Z
                  false, false, false, # roll, pitch, yaw
                  true,  true,  true,  # X',Y',Z'
-                 false, false, true,  # roll',pitch',yaw'
+                 false, false, false,  # roll',pitch',yaw'
                  false, false, false] # X'',Y'',Z''
   odom0_queue_size: 10 # callback queue size
   odom0_nodelay: true # disable Nagle's algorithm
@@ -120,7 +120,7 @@ gps_fused_ekf_node:
   odom0_config: [false, false, false, # X, Y, Z
                  false, false, false, # roll, pitch, yaw
                  true,  true,  true,  # X',Y',Z'
-                 false, false, true,  # roll',pitch',yaw'
+                 false, false, false,  # roll',pitch',yaw'
                  false, false, false] # X'',Y'',Z''
   odom0_queue_size: 10 # callback queue size
   odom0_nodelay: true # disable Nagle's algorithm
@@ -200,9 +200,14 @@ navsat_transform_node:
   delay: 3.0 # The time, in seconds, to wait before calculating the transform from GPS coordinates to your robot’s world frame.
   # magnetic declination (degrees west of true north) in radians. Using http://www.ngdc.noaa.gov/geomag-web, calculated the declination for Sarasota, FL on May 3, 2017. It changes over time.
   magnetic_declination_radians: 0.0942478
-  yaw_offset: 3.1415927  # fix IMU yaw (magnetic heading)
+# yaw_offset is complicated. https://source.android.com/devices/sensors/sensor-types
+# android reports IMU data in ENU frame, but as a conversion from ENU 
+# -> phone's local frame, which has y up and x right - thus it is 90
+# degrees off of the base_link based on where the phone was placed.
+# So we fix the yaw here by 90 degrees (~1.5707963 rads).
+  yaw_offset: 1.5707963
   zero_altitude: true # Produced odometry message has its pose's Z value set to 0
-  broadcast_utm_transform: false # broadcast the transform between the UTM grid and the frame of the input odometry data
+  broadcast_utm_transform: true # broadcast the transform between the UTM grid and the frame of the input odometry data
   publish_filtered_gps: true # transform your robot’s world frame (e.g., map) position back to GPS coordinates, and publish a NavSatFix message on the /gps/filtered topic.
   use_odometry_yaw: false # get heading from the input odometry message, and not from the IMU data
   wait_for_datum: false # wait to get a datum from the set_datum service

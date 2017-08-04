@@ -1,0 +1,9 @@
+digraph G {
+"odom" -> "base_link"[label="Broadcaster: /odom_imu_ekf_node\nAverage rate: 29.933 Hz\nMost recent transform: 1499216254.813 ( 0.045 sec old)\nBuffer length: 4.944 sec\n"];
+"map" -> "odom"[label="Broadcaster: /gps_fused_ekf_node\nAverage rate: 29.914 Hz\nMost recent transform: 1499216254.783 ( 0.075 sec old)\nBuffer length: 4.914 sec\n"];
+"base_link" -> "phone"[label="Broadcaster: /bl_phone_tf\nAverage rate: 10.053 Hz\nMost recent transform: 1499216254.878 ( -0.019 sec old)\nBuffer length: 4.774 sec\n"];
+edge [style=invis];
+ subgraph cluster_legend { style=bold; color=black; label ="view_frames Result";
+"Recorded at time: 1499216254.858"[ shape=plaintext ] ;
+ }->"map";
+}

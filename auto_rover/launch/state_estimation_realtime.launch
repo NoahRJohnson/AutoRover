@@ -20,9 +20,6 @@
 	<node pkg="tf" type="static_transform_publisher" name="bl_phone" args="0 -0.0508 0 0 0 0 1 base_link phone 100" />
 
 
-	<!-- Load the yaml file for parameter specification. -->
-	<rosparam command="load" file="$(find auto_rover)/params/state_estimation.yaml" />
-
 	<!-- An EKF instance that fuses wheel odometry and IMU data and outputs an odom->base_link transform -->
   	<node pkg="robot_localization" type="ekf_localization_node" name="odom_imu_ekf_node" />
 

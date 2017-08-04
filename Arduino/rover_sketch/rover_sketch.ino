@@ -38,6 +38,7 @@ Servo rightMotors, leftMotors; // Sabertooth R/C differential control. 44 deg fu
 #define MOTOR_CENTER 94
 Servo sonicServo; // standard Parallax servo attached to ultrasonic sensor. xx left, 66 center, xx 
 
+// THESE LEFT, CENTER, RIGHT VALUES NEED TO BE TESTED / CALIBRATED STILL, SINCE THE PWM RANGE WAS ADJUSTED
 /*
  * We use the Arduino Servo library to write pulses out to the servo telling it where to position itself.
  * We will sweep the servo back and forth to detect obstacles ahead and to the sides of the rover.
